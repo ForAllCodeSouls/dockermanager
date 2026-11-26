@@ -23,6 +23,9 @@ export const API = {
   taskStream: (id: string) => `/api/tasks/${encodeURIComponent(id)}/stream`,
   convertRun: "/api/tools/convert-run",
   stats: "/api/stats",
+  hosts: "/api/hosts",
+  proxy: (hostId: string, path: string) =>
+    `/api/host/${encodeURIComponent(hostId)}${path}`,
 } as const;
 
 export const STACK_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;

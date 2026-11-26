@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { API, type ServerEvent } from "@dockermanager/shared";
+import { scopedUrl } from "./api";
 
 export type ConnectionStatus = "connecting" | "live" | "reconnecting" | "offline";
 
@@ -53,7 +54,7 @@ export function useLiveConnection(enabled: boolean): LiveState {
 
     const connect = () => {
       if (disposed) return;
-      const es = new EventSource(API.events);
+      const es = new EventSource(scopedUrl(API.events));
       source = es;
 
       es.onopen = () => {

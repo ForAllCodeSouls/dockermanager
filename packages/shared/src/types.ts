@@ -186,3 +186,15 @@ export interface ConvertRunResponse {
   warnings: string[];
 }
 
+/** 多主机：一个可管理的 Docker 主机 */
+export interface AgentHost {
+  id: string;
+  name: string;
+  local: boolean;
+  online: boolean;
+}
+
+export interface HostsResponse {
+  hosts: AgentHost[];
+}
+

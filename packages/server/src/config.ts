@@ -49,6 +49,35 @@ export const config = {
     Number(process.env.UPDATE_INTERVAL_SECONDS ?? 600),
   ),
   imageName: process.env.IMAGE_NAME ?? "",
+
+  // 多主机：agent 模式开关与共享密钥。
+  // 主实例通过 AGENTS（JSON 数组）配置远程 agent：[{id,name,url,token}]
+  mode: (process.env.MODE ?? "server") as "server" | "agent",
+  agentToken: process.env.AGENT_TOKEN ?? "",
+  agents: (() => {
+    try {
+      const raw = process.env.AGENTS;
+      if (!raw) return [] as { id: string; name: string; url: string; token: string }[];
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return [] as { id: string; name: string; url: string; token: string }[];
+      return parsed
+        .filter(
+          (item): item is { id: string; name: string; url: string; token: string } =>
+            typeof item === "object" &&
+            item !== null &&
+            typeof (item as { id?: unknown }).id === "string" &&
+            typeof (item as { url?: unknown }).url === "string",
+        )
+        .map((item) => ({
+          id: item.id,
+          name: item.name || item.id,
+          url: item.url.replace(/\/$/, ""),
+          token: item.token || "",
+        }));
+    } catch {
+      return [] as { id: string; name: string; url: string; token: string }[];
+    }
+  })(),
 } as const;
 
 export type Config = typeof config;

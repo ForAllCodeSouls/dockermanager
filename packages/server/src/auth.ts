@@ -50,7 +50,20 @@ export function tokenFromRequest(request: FastifyRequest): string | undefined {
 }
 
 export function isAuthenticated(request: FastifyRequest): boolean {
+  // agent 模式：用共享密钥的 Bearer Token 认证
+  if (config.mode === "agent") {
+    if (!config.agentToken) return false;
+    const auth = request.headers.authorization;
+    return auth === `Bearer ${config.agentToken}`;
+  }
   return verifyToken(tokenFromRequest(request));
+}
+
+/** 校验来自主实例的 agent 请求（配置中登记的 token） */
+export function isAgentRequest(request: FastifyRequest, token: string): boolean {
+  if (!token) return false;
+  const auth = request.headers.authorization;
+  return auth === `Bearer ${token}`;
 }
 
 export function setSessionCookie(reply: FastifyReply, token: string): void {

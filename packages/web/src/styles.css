@@ -109,6 +109,10 @@ button { cursor: pointer; }
 .debug-link input { flex: 1; min-width: 220px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; color: var(--muted); font-size: 11px; }
 .debug-link a { color: var(--accent); font-size: 12px; }
 
+/* 主机切换器 */
+.host-switcher { display: flex; align-items: center; gap: 6px; }
+.host-switcher select { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
+
 /* 资源占用条 */
 .stats-strip { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .stat-chip { font-size: 11px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; }

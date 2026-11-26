@@ -19,6 +19,7 @@ import { StackEditor } from "./StackEditor";
 import { TaskProgress } from "./TaskProgress";
 import { ConvertTool } from "./ConvertTool";
 import { StatsStrip } from "./StatsStrip";
+import { HostSwitcher } from "./HostSwitcher";
 
 interface Props {
   live: LiveState;
@@ -84,18 +85,16 @@ export function Dashboard({ live, health }: Props) {
     return () => window.removeEventListener("dockermanager:update", onUpdate);
   }, []);
 
-  function refresh() {
-    void queryClient.invalidateQueries({ queryKey: ["snapshot"] });
-  }
+  const refresh = useCallback(() => {
+    void queryClient.invalidateQueries();
+  }, [queryClient]);
 
   const onTaskFinished = useCallback(
     (result: TaskFinished) => {
       notify(result.ok ? "操作完成" : `操作失败（退出码 ${result.exitCode}）`);
       refresh();
     },
-    // refresh 每次渲染都会新建，这里只依赖 queryClient 保持稳定
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [refresh],
   );
 
   async function runAction(name: string, action: StackAction) {
@@ -172,6 +171,7 @@ export function Dashboard({ live, health }: Props) {
           </div>
         </div>
         <div className="top-actions">
+          <HostSwitcher onHostChanged={refresh} />
           <span
             className={`connection ${live.status}`}
             title={

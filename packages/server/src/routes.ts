@@ -32,6 +32,8 @@ import { config } from "./config.js";
 import { convertRunCommand } from "./convert-run.js";
 import { composeFileFor } from "./docker.js";
 import { eventBus } from "./event-bus.js";
+import { hostsResponse } from "./hosts.js";
+import { registerProxy } from "./proxy.js";
 import { currentStats } from "./stats.js";
 import { appendAudit, needsSetup, readAudit, setPassword } from "./store.js";
 import { stacks } from "./stacks.js";
@@ -50,6 +52,9 @@ function writeEvent(reply: FastifyReply, event: ServerEvent): void {
 }
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
+  // 多主机代理需在认证 hook 之前注册，由代理自身校验 agent token
+  registerProxy(app);
+
   app.addHook("onRequest", async (request, reply) => {
     const pathname = request.url.split("?")[0];
     if (!pathname?.startsWith("/api/")) return;
@@ -116,6 +121,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get(API.snapshot, async () => stacks.snapshot());
 
   app.get(API.stats, async () => currentStats());
+
+  app.get(API.hosts, async () => hostsResponse());
 
   app.post(API.batch, async (request, reply) => {
     const body = request.body as BatchRequest;

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { API, type TaskFinished, type TaskLine, type TaskStarted } from "@dockermanager/shared";
+import { scopedUrl } from "../api";
 
 interface Props {
   task: TaskStarted;
@@ -15,7 +16,7 @@ export function TaskProgress({ task, onClose, onFinished }: Props) {
   useEffect(() => {
     setLines([]);
     setDone(null);
-    const source = new EventSource(API.taskStream(task.id));
+    const source = new EventSource(scopedUrl(API.taskStream(task.id)));
     source.onmessage = (event) => {
       try {
         const line = JSON.parse(event.data) as TaskLine;

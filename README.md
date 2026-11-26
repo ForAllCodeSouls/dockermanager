@@ -99,15 +99,59 @@ Traefik 用户需要关闭该路由的缓冲中间件，并将 `entryPoint` 的�
 | `COOKIE_SECURE` | `false` | 全站 HTTPS 时设为 `true` |
 | `SESSION_SECRET` | 自动生成 | 会话签名密钥，默认持久化在 `DATA_DIR/session-secret` |
 | `WEB_DIST` | 自动推断 | 前端构建产物目录 |
+| `MODE` | `server` | `server` 主实例 / `agent` 远程代理 |
+| `AGENT_TOKEN` | 空 | agent 模式的共享密钥（Bearer Token） |
+| `AGENTS` | 空 | 主实例的 agent 列表，JSON 数组：`[{"id":"nas2","name":"备份机","url":"http://192.168.1.20:5001","token":"同一密钥"}]` |
 
 ## 功能
 
 - 栈的创建、编辑（YAML 语法校验）、删除
-- 启动、停止、重启、拉取、更新、down
+- 启动、停止、重启、拉取、更新、down——**实时流式输出进度**
 - 多选批量启动 / 停止 / 重启 / 更新
 - 容器服务状态、Web 终端、实时日志
+- **容器实时统计**（CPU / 内存 / 网络 / 磁盘 IO，每 3 秒采样）
+- **`docker run` 命令转 compose.yaml**（工具栏入口）
+- **多 Docker 主机管理**（顶部主机切换器，agent 模式）
 - 操作审计日志（append-only JSONL）
 - 连接诊断面板（连接状态、事件计数、快照序号、Docker 引擎状态）
+- 容器自更新与只读调试链接
+
+## 多 Docker 主机（Agent 模式）
+
+在一台主实例之外，把 DockerManager 以 agent 模式部署到每台远程主机，即可在一个界面管理所有主机。
+
+**远程主机（agent）** —— 挂载该主机的 docker.sock 与 stacks 目录，设置一个共享密钥：
+
+```yaml
+services:
+  dockermanager-agent:
+    image: ghcr.io/forallcodesouls/dockermanager:dev
+    container_name: dockermanager-agent
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/stacks:/opt/stacks
+    environment:
+      MODE: agent
+      AGENT_TOKEN: 换成一个长随机字符串
+      STACKS_DIR: /opt/stacks
+```
+
+**主实例** —— 在原有 compose 的 `environment` 增加 `AGENTS`：
+
+```yaml
+      AGENTS: '[{"id":"nas2","name":"备份机","url":"http://192.168.1.20:5001","token":"同样的字符串"}]'
+```
+
+重启主实例后，顶部"主机"下拉框会出现远程主机。切换后所有栈操作、日志、统计与进度流都会转发到该主机。
+
+注意事项：
+- `AGENT_TOKEN` 必须在主实例与 agent 完全一致；建议用 `openssl rand -hex 32` 生成。
+- agent 的 `/api/health` 无需 token（用于在线探测），其余 API 均需 Bearer Token。
+- 主机间**终端（WebSocket）暂不代理**，远程主机请使用日志功能；此为已知限制。
+- 单一主机部署无需配置，默认行为与之前完全一致。
 
 ## 安全说明
 

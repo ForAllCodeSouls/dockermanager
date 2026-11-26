@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
 import { API, type ComposePayload, type StackInfo } from "@dockermanager/shared";
-import { apiFetch, put } from "../api";
+import { apiFetch, put, scopedUrl } from "../api";
 import { TerminalView } from "./Terminal";
 
 interface Props {
@@ -17,7 +17,7 @@ function LogView({ stack, service }: { stack: string; service: string }) {
   const [lines, setLines] = useState<string[]>([]);
   useEffect(() => {
     setLines([]);
-    const source = new EventSource(API.logs(stack, service));
+    const source = new EventSource(scopedUrl(API.logs(stack, service)));
     source.onmessage = (event) => {
       try {
         const line = JSON.parse(event.data) as string;
