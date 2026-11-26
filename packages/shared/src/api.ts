@@ -21,6 +21,7 @@ export const API = {
   systemUpdate: "/api/system/update",
   systemLogs: "/api/system/logs",
   systemDiagnostics: "/api/system/diagnostics",
+  systemUpdateHelper: "/api/system/update-helper",
   updateCheck: "/api/system/update/check",
   updateApply: "/api/system/update/apply",
   debugToken: "/api/system/debug-token",

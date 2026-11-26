@@ -39,7 +39,7 @@ import { currentStats } from "./stats.js";
 import { appendAudit, needsSetup, readAudit, setPassword } from "./store.js";
 import { stacks } from "./stacks.js";
 import { actionArgsForTask, startTask, subscribeTask, taskSnapshot } from "./tasks.js";
-import { applyUpdate, checkForUpdate, selfLogs, updateStatus } from "./updater.js";
+import { applyUpdate, checkForUpdate, helperDiagnostics, selfLogs, updateStatus } from "./updater.js";
 import { version } from "./version.js";
 
 const actions: StackAction[] = ["start", "stop", "restart", "update", "down", "pull"];
@@ -332,6 +332,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get(API.systemUpdate, async (): Promise<UpdateStatus> => updateStatus);
 
+  app.get(API.systemUpdateHelper, async () => ({ helpers: await helperDiagnostics() }));
+
   app.get<{ Querystring: { lines?: string } }>(API.systemLogs, async (request) => ({
     lines: await selfLogs(Math.min(Number(request.query.lines ?? 200) || 200, 1000)),
   }));
@@ -373,6 +375,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       snapshot: await stacks.snapshot(),
       audit: readAudit(50, 0),
       logs: await selfLogs(200),
+      helpers: await helperDiagnostics(),
       note: "只读诊断包，不包含密码或会话 Token",
     };
   });

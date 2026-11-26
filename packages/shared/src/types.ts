@@ -154,6 +154,14 @@ export interface UpdateStatus {
   latestImageId: string | null;
 }
 
+export interface HelperDiagnostic {
+  name: string;
+  state: string;
+  status: string;
+  exitCode: number | null;
+  logs: string[];
+}
+
 export interface DiagnosticsBundle {
   generatedAt: string;
   version: SystemVersion;
@@ -162,6 +170,7 @@ export interface DiagnosticsBundle {
   snapshot: Snapshot;
   audit: AuditPage;
   logs: string[];
+  helpers: HelperDiagnostic[];
   note: string;
 }
 

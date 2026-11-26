@@ -58,6 +58,20 @@ async function launchHelper(newImage: string, previousImageId: string | null): P
   const targetName = os.hostname().slice(0, 64);
   const helperName = `dockermanager-updater-${Date.now()}`;
 
+  // 清理历史 helper 容器，只保留最近 3 个供排查，避免无限堆积。
+  try {
+    const old = await docker.listContainers({
+      all: true,
+      filters: { name: ["dockermanager-updater-"] },
+    });
+    old.sort((a, b) => b.Created - a.Created);
+    for (const item of old.slice(2)) {
+      await docker.getContainer(item.Id).remove({ force: true }).catch(() => undefined);
+    }
+  } catch {
+    // 清理失败不影响本次更新
+  }
+
   eventBus.publish("update.applied", { image: newImage, phase: "launching-helper" });
 
   const helper = await docker.createContainer({
@@ -73,7 +87,9 @@ async function launchHelper(newImage: string, previousImageId: string | null): P
     WorkingDir: "/app",
     HostConfig: {
       Binds: ["/var/run/docker.sock:/var/run/docker.sock"],
-      AutoRemove: true,
+      // 不自动删除：失败后保留 helper 容器与日志，便于 /api/system/update-helper 排查。
+      // 下次启动更新时清理旧的 helper，避免堆积。
+      AutoRemove: false,
       // helper 不对外暴露端口，也不复制主容器的网络/卷配置。
     },
   });
@@ -152,6 +168,49 @@ export async function applyUpdate(): Promise<{ ok: boolean; message: string }> {
   // 用旧镜像 ID 作为回滚兜底，交给 helper 容器。
   scheduleApply(status.currentImageId);
   return { ok: true, message: "发现新版本，已启动更新器用新镜像重建自身" };
+}
+
+/** 读取最近几次自更新 helper 容器的状态与日志，用于排查重建失败原因。 */
+export async function helperDiagnostics(lines = 120): Promise<
+  { name: string; state: string; status: string; exitCode: number | null; logs: string[] }[]
+> {
+  try {
+    const containers = await docker.listContainers({
+      all: true,
+      filters: { name: ["dockermanager-updater-"] },
+    });
+    containers.sort((a, b) => b.Created - a.Created);
+    return Promise.all(
+      containers.slice(0, 3).map(async (item) => {
+        const c = docker.getContainer(item.Id);
+        let logs: string[] = [];
+        try {
+          const raw = (await c.logs({
+            stdout: true,
+            stderr: true,
+            tail: lines,
+            timestamps: true,
+          })) as Buffer;
+          logs = raw
+            .toString("utf8")
+            .split("\n")
+            .map((line) => line.replace(/^[\u0000-\u0008]+/, ""))
+            .filter((line) => line.trim().length > 0);
+        } catch {
+          logs = ["[无法读取 helper 日志]"];
+        }
+        return {
+          name: item.Names[0]?.replace(/^\//, "") ?? item.Id.slice(0, 12),
+          state: item.State,
+          status: item.Status,
+          exitCode: typeof item.Labels?.["exitCode"] === "string" ? Number(item.Labels["exitCode"]) : null,
+          logs,
+        };
+      }),
+    );
+  } catch (error) {
+    return [{ name: "error", state: "error", status: String(error), exitCode: null, logs: [] }];
+  }
 }
 
 export function startUpdater(): void {
