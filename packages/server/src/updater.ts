@@ -40,6 +40,28 @@ function imageId(image: string): Promise<string | null> {
     .catch(() => null);
 }
 
+/**
+ * 重建容器时，运行期环境变量（含用户配置）来自旧容器，但镜像内烘焙的
+ * APP_VERSION / APP_COMMIT / APP_BUILD_TIME 必须取自新镜像，否则诊断面板
+ * 会一直显示旧版本号。其余变量保留旧容器的值（用户配置不能被覆盖）。
+ */
+function mergedEnv(
+  containerEnv: string[] | undefined,
+  imageEnv: string[] | undefined,
+): string[] | undefined {
+  if (!containerEnv) return imageEnv;
+  const out = [...containerEnv];
+  const versionKeys = ["APP_VERSION", "APP_COMMIT", "APP_BUILD_TIME"];
+  for (const key of versionKeys) {
+    const fromImage = imageEnv?.find((entry) => entry.startsWith(`${key}=`));
+    if (!fromImage) continue;
+    const index = out.findIndex((entry) => entry.startsWith(`${key}=`));
+    if (index >= 0) out[index] = fromImage;
+    else out.push(fromImage);
+  }
+  return out;
+}
+
 /** 从容器 inspect 结果中挑选可用于重建的 HostConfig 字段（白名单，避免派生字段导致 create 报错）。 */
 function recreateHostConfig(info: Docker.ContainerInspectInfo): Docker.HostConfig {
   const hc = info.HostConfig;
@@ -110,11 +132,12 @@ async function recreateSelf(newImage: string, previousImageId: string | null): P
   const info = await self.inspect();
   const name = info.Name.replace(/^\//, "");
   const networks = info.NetworkSettings?.Networks ?? {};
+  const newImageInfo = await docker.getImage(newImage).inspect().catch(() => null);
 
   const createOptions: Docker.ContainerCreateOptions = {
     name,
     Image: newImage,
-    Env: info.Config.Env,
+    Env: mergedEnv(info.Config.Env, newImageInfo?.Config?.Env),
     Labels: info.Config.Labels,
     Cmd: info.Config.Cmd,
     Entrypoint: info.Config.Entrypoint,
@@ -162,7 +185,11 @@ export async function checkForUpdate(): Promise<UpdateStatus> {
     if (!image) throw new Error("无法确定镜像名称，请设置 IMAGE_NAME 环境变量");
     version.image = image;
 
-    const before = await imageId(image);
+    // 关键：必须拿「容器当前正在运行的镜像 ID」作为比较基准，
+    // 而不是本地 tag 的镜像 ID。docker pull 会更新本地 tag，但不会改变
+    // 正在运行的容器；旧逻辑 pull 前后读的都是同一个 tag，因此永远判为
+    // 「已是最新」，容器从不重建，前端也就一直停留在旧 bundle。
+    const before = info?.Image ?? (await imageId(image));
     const stream = await docker.pull(image);
     await new Promise<void>((resolve, reject) => {
       docker.modem.followProgress(stream, (error: Error | null) =>
@@ -173,7 +200,8 @@ export async function checkForUpdate(): Promise<UpdateStatus> {
 
     updateStatus.currentImageId = before;
     updateStatus.latestImageId = after;
-    version.imageId = after;
+    // 这里报告的是「正在运行」的镜像，诊断面板才不会谎报新版本。
+    version.imageId = before;
     updateStatus.updateAvailable = Boolean(after && after !== before);
     updateStatus.lastCheckAt = new Date().toISOString();
     updateStatus.lastError = null;
