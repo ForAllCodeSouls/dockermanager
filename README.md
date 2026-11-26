@@ -45,6 +45,7 @@ cd /opt/dockermanager && docker compose up -d
 
 - **镜像**：推荐用 GHCR 镜像而不是 `build: .`，因为容器内自更新依赖镜像名。若要用本地源码构建，把 `image:` 换成 `build: .`，并按需调整 `IMAGE_NAME`。
 - **GHCR 私有包**：首次推送的镜像默认是私有，需要在仓库 Packages 页面改为 Public，否则本机拉取会失败。
+- **镜像名小写**：Docker 强制要求镜像路径全小写，因此统一使用 `ghcr.io/forallsouls/dockermanager`。CI 用 `github.repository` 生成镜像名并由 `metadata-action` 自动小写化，仓库名与账号名请保持小写，否则会出现 `repository name must be lowercase` 或匿名拉取被拒。
 - **SETUP_TOKEN**：可选，用于保护首次设置密码。留空则任何人都能设置密码，建议仅在可信网络内使用。
 - **路径一致**：`/opt/stacks` 在容器内外保持同一路径，是为了让 compose 里的相对路径 volume 能被 Docker daemon 正确解析；不要改成别的宿主机目录后再映射到不同容器路径。
 - 栈文件实际保存在宿主机的 `/opt/stacks/<栈名>/compose.yaml`。
