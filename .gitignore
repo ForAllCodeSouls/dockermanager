@@ -9,3 +9,6 @@ stacks/
 .DS_Store
 coverage/
 *.log
+
+# local temporary verification artifacts
+.tmp-*

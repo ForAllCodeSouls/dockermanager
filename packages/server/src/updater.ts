@@ -65,8 +65,14 @@ function mergedEnv(
 /** 从容器 inspect 结果中挑选可用于重建的 HostConfig 字段（白名单，避免派生字段导致 create 报错）。 */
 function recreateHostConfig(info: Docker.ContainerInspectInfo): Docker.HostConfig {
   const hc = info.HostConfig;
+  // HostConfig.Binds 只含 bind mounts；named volume（如 data 卷）在 info.Mounts 里。
+  // 若只复制 Binds，重建后容器会丢失 /app/data 卷，导致密码与审计数据丢失。
+  const namedVolumes = (info.Mounts ?? [])
+    .filter((m) => m.Type === "volume" && m.Name)
+    .map((m) => `${m.Name}:${m.Destination}:${m.RW ? "rw" : "ro"}`);
+  const binds = [...(hc.Binds ?? []), ...namedVolumes];
   const picked: Docker.HostConfig = {
-    Binds: hc.Binds,
+    Binds: binds.length > 0 ? binds : hc.Binds,
     PortBindings: hc.PortBindings,
     Links: hc.Links,
     Privileged: hc.Privileged,
