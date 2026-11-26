@@ -129,6 +129,29 @@ function recreateHostConfig(info: Docker.ContainerInspectInfo): Docker.HostConfi
 }
 
 /**
+ * NetworkSettings.Networks 里的 IPAddress / Gateway / EndpointID / MacAddress
+ * 等都是 Docker 运行后写入的只读派生字段。直接回填到 EndpointsConfig 会让
+ * createContainer 报 "endpoint with name ... already exists" 之类的错误，
+ * 上一次自更新因此把容器删掉后无法重建，直接导致站点 502。
+ * 这里只保留 Docker API 允许在 create 时传入的可写字段。
+ */
+export function recreatableEndpoints(
+  networks: Docker.ContainerInspectInfo["NetworkSettings"]["Networks"],
+): Record<string, Docker.EndpointSettings> | undefined {
+  if (!networks || Object.keys(networks).length === 0) return undefined;
+  const endpoints: Record<string, Docker.EndpointSettings> = {};
+  for (const [networkName, endpoint] of Object.entries(networks)) {
+    if (!endpoint) continue;
+    const clean: Docker.EndpointSettings = {};
+    if (endpoint.Aliases?.length) clean.Aliases = endpoint.Aliases;
+    if (endpoint.IPAMConfig) clean.IPAMConfig = endpoint.IPAMConfig;
+    if (endpoint.Links?.length) clean.Links = endpoint.Links;
+    endpoints[networkName] = clean;
+  }
+  return Object.keys(endpoints).length > 0 ? endpoints : undefined;
+}
+
+/**
  * 用新镜像重建自身容器。docker restart 只会重启原容器、沿用旧镜像层，
  * 因此必须 create(新镜像) → stop/remove(旧) → start(新)，才能真正应用更新。
  * 只操作自身容器，不触碰任何其他容器或宿主机文件。
@@ -137,8 +160,8 @@ async function recreateSelf(newImage: string, previousImageId: string | null): P
   const self = selfContainer();
   const info = await self.inspect();
   const name = info.Name.replace(/^\//, "");
-  const networks = info.NetworkSettings?.Networks ?? {};
   const newImageInfo = await docker.getImage(newImage).inspect().catch(() => null);
+  const endpoints = recreatableEndpoints(info.NetworkSettings?.Networks);
 
   const createOptions: Docker.ContainerCreateOptions = {
     name,
@@ -155,19 +178,42 @@ async function recreateSelf(newImage: string, previousImageId: string | null): P
     Volumes: info.Config.Volumes,
     Healthcheck: info.Config.Healthcheck,
     HostConfig: recreateHostConfig(info),
-    NetworkingConfig: Object.keys(networks).length > 0 ? { EndpointsConfig: networks } : undefined,
+    NetworkingConfig: endpoints ? { EndpointsConfig: endpoints } : undefined,
   };
+
+  // 关键安全网：先用临时名字 create 一次（不 start，不占端口、不碰旧容器），
+  // 让 Docker 校验所有 HostConfig / NetworkingConfig 字段。预检失败就原样返回，
+  // 绝不 stop/remove 正在服务的容器——上次 502 正是因为跳过这一步。
+  eventBus.publish("update.applied", { image: newImage, phase: "preflight" });
+  const probeName = `${name}-update-probe-${Date.now()}`;
+  let probe: Docker.Container | null = null;
+  try {
+    probe = await docker.createContainer({
+      ...createOptions,
+      name: probeName,
+      // 预检容器不抢端口，也不接真实流量
+      HostConfig: { ...createOptions.HostConfig, PortBindings: undefined },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    eventBus.publish("update.failed", { error: `更新预检失败，已保留原容器: ${message}` });
+    throw new Error(`更新预检失败，已保留原容器: ${message}`);
+  } finally {
+    if (probe) await probe.remove({ force: true }).catch(() => undefined);
+  }
 
   eventBus.publish("update.applied", { image: newImage, phase: "recreating" });
   await self.stop({ t: 15 });
   await self.remove();
 
+  let created: Docker.Container | null = null;
   try {
-    const created = await docker.createContainer(createOptions);
+    created = await docker.createContainer(createOptions);
     await created.start();
   } catch (error) {
     // 恢复：用旧镜像 ID 重建，尽量把服务拉回来
     const message = error instanceof Error ? error.message : String(error);
+    if (created) await created.remove({ force: true }).catch(() => undefined);
     try {
       const rollbackImage = previousImageId || info.Config.Image;
       const restored = await docker.createContainer({ ...createOptions, Image: rollbackImage });
