@@ -6,6 +6,7 @@ import cookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
 import { config } from "./config.js";
 import { registerRoutes } from "./routes.js";
+import { startStatsSampler } from "./stats.js";
 import { setupTerminal } from "./terminal.js";
 import { startUpdater } from "./updater.js";
 
@@ -27,3 +28,4 @@ if (fs.existsSync(path.join(webDist, "index.html"))) {
 await app.listen({ port: config.port, host: config.host });
 app.log.info(`DockerManager listening on http://${config.host}:${config.port}`);
 startUpdater();
+startStatsSampler();

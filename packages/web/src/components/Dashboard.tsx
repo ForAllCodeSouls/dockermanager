@@ -18,6 +18,7 @@ import { AuditPanel, DiagnosticsPanel } from "./Panels";
 import { StackEditor } from "./StackEditor";
 import { TaskProgress } from "./TaskProgress";
 import { ConvertTool } from "./ConvertTool";
+import { StatsStrip } from "./StatsStrip";
 
 interface Props {
   live: LiveState;
@@ -258,6 +259,10 @@ export function Dashboard({ live, health }: Props) {
                     </span>
                   ))}
                 </div>
+                <StatsStrip
+                  stackName={stack.name}
+                  serviceNames={stack.services.filter((c) => c.state === "running").map((c) => c.name)}
+                />
               </div>
               <div className="card-actions">
                 <button className="ghost" disabled={busy} onClick={() => runAction(stack.name, "start")}>启动</button>

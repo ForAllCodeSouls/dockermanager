@@ -9,6 +9,26 @@ export interface ContainerInfo {
   ports: string;
 }
 
+/** 单个容器的实时资源占用快照 */
+export interface ContainerStats {
+  id: string;
+  name: string;
+  cpuPercent: number;
+  memoryPercent: number;
+  memoryUsageMb: number;
+  memoryLimitMb: number;
+  netRxMb: number;
+  netTxMb: number;
+  blockReadMb: number;
+  blockWriteMb: number;
+  error: string | null;
+}
+
+export interface StatsResponse {
+  generatedAt: string;
+  containers: ContainerStats[];
+}
+
 export interface StackInfo {
   name: string;
   status: StackStatus;

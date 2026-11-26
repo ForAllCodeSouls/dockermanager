@@ -32,6 +32,7 @@ import { config } from "./config.js";
 import { convertRunCommand } from "./convert-run.js";
 import { composeFileFor } from "./docker.js";
 import { eventBus } from "./event-bus.js";
+import { currentStats } from "./stats.js";
 import { appendAudit, needsSetup, readAudit, setPassword } from "./store.js";
 import { stacks } from "./stacks.js";
 import { actionArgsForTask, startTask, subscribeTask, taskSnapshot } from "./tasks.js";
@@ -113,6 +114,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get(API.snapshot, async () => stacks.snapshot());
+
+  app.get(API.stats, async () => currentStats());
 
   app.post(API.batch, async (request, reply) => {
     const body = request.body as BatchRequest;
