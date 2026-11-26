@@ -24,7 +24,7 @@ async function main(): Promise<void> {
 
   const docker = new Docker();
   console.log(
-    `[updater-agent] 开始重建 ${targetName} -> ${newImage} (previous=${previousImageId ?? "unknown"})`,
+    `[updater-agent] v2 开始重建 ${targetName} -> ${newImage} (previous=${previousImageId ?? "unknown"})`,
   );
   try {
     await performRecreate(docker, targetName, newImage, previousImageId, (msg) =>
