@@ -140,3 +140,29 @@ export interface DebugTokenResponse {
   expiresAt: string;
 }
 
+/** 实时任务（compose pull/up/down 等）的一条流式输出 */
+export interface TaskLine {
+  stream: "stdout" | "stderr";
+  text: string;
+}
+
+export interface TaskStarted {
+  id: string;
+  stack: string;
+  action: string;
+}
+
+export interface TaskFinished {
+  ok: boolean;
+  exitCode: number | null;
+}
+
+export interface ConvertRunRequest {
+  command: string;
+}
+
+export interface ConvertRunResponse {
+  compose: string;
+  warnings: string[];
+}
+

@@ -5,6 +5,8 @@ import {
   API,
   type BatchRequest,
   type ComposePayload,
+  type ConvertRunRequest,
+  type ConvertRunResponse,
   type DebugTokenResponse,
   type DiagnosticsBundle,
   type HealthResponse,
@@ -13,6 +15,7 @@ import {
   type SetupRequest,
   type StackAction,
   type SystemVersion,
+  type TaskStarted,
   type UpdateStatus,
 } from "@dockermanager/shared";
 import {
@@ -26,10 +29,12 @@ import {
   verifyPassword,
 } from "./auth.js";
 import { config } from "./config.js";
+import { convertRunCommand } from "./convert-run.js";
 import { composeFileFor } from "./docker.js";
 import { eventBus } from "./event-bus.js";
 import { appendAudit, needsSetup, readAudit, setPassword } from "./store.js";
 import { stacks } from "./stacks.js";
+import { actionArgsForTask, startTask, subscribeTask, taskSnapshot } from "./tasks.js";
 import { applyUpdate, checkForUpdate, selfLogs, updateStatus } from "./updater.js";
 import { version } from "./version.js";
 
@@ -146,9 +151,63 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   for (const action of actions) {
     app.post<{ Params: { name: string } }>(
       `/api/stacks/:name/${action}`,
-      async (request) => stacks.action(request.params.name, action),
+      async (request): Promise<TaskStarted> =>
+        startTask({
+          stack: request.params.name,
+          action,
+          args: actionArgsForTask(action),
+        }),
     );
   }
+
+  // 实时任务输出流：先回放已缓存的行，再推送后续增量
+  app.get<{ Params: { id: string } }>("/api/tasks/:id/stream", async (request, reply) => {
+    const snapshot = taskSnapshot(request.params.id);
+    if (!snapshot) return fail(reply, 404, "任务不存在或已过期");
+
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    reply.raw.write("retry: 2000\n\n");
+    for (const line of snapshot.lines) {
+      reply.raw.write(`data: ${JSON.stringify(line)}\n\n`);
+    }
+
+    let closed = false;
+    const unsubscribe = subscribeTask(
+      request.params.id,
+      (line) => {
+        if (!closed) reply.raw.write(`data: ${JSON.stringify(line)}\n\n`);
+      },
+      (result) => {
+        if (closed) return;
+        reply.raw.write(`event: done\ndata: ${JSON.stringify(result)}\n\n`);
+        reply.raw.end();
+        closed = true;
+      },
+    );
+    // 任务在订阅前就已结束的情况
+    if (snapshot.task.done && !closed) {
+      reply.raw.write(
+        `event: done\ndata: ${JSON.stringify({ ok: snapshot.task.ok, exitCode: snapshot.task.exitCode })}\n\n`,
+      );
+      reply.raw.end();
+      closed = true;
+    }
+    request.raw.on("close", () => {
+      closed = true;
+      unsubscribe?.();
+    });
+  });
+
+  app.post(API.convertRun, async (request): Promise<ConvertRunResponse> => {
+    const body = (request.body ?? {}) as ConvertRunRequest;
+    return convertRunCommand(body.command ?? "");
+  });
 
   app.get<{ Params: { name: string }; Querystring: { service?: string } }>(
     "/api/stacks/:name/logs",

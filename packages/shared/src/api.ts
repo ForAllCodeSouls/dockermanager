@@ -20,6 +20,8 @@ export const API = {
   updateCheck: "/api/system/update/check",
   updateApply: "/api/system/update/apply",
   debugToken: "/api/system/debug-token",
+  taskStream: (id: string) => `/api/tasks/${encodeURIComponent(id)}/stream`,
+  convertRun: "/api/tools/convert-run",
 } as const;
 
 export const STACK_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;

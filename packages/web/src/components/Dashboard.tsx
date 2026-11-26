@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   API,
@@ -9,11 +9,15 @@ import {
   type Snapshot,
   type StackAction,
   type StackInfo,
+  type TaskFinished,
+  type TaskStarted,
 } from "@dockermanager/shared";
 import { apiFetch, del, post, put } from "../api";
 import type { LiveState } from "../live";
 import { AuditPanel, DiagnosticsPanel } from "./Panels";
 import { StackEditor } from "./StackEditor";
+import { TaskProgress } from "./TaskProgress";
+import { ConvertTool } from "./ConvertTool";
 
 interface Props {
   live: LiveState;
@@ -49,6 +53,8 @@ export function Dashboard({ live, health }: Props) {
   const [notice, setNotice] = useState("");
   const [newName, setNewName] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [showConvert, setShowConvert] = useState(false);
+  const [task, setTask] = useState<TaskStarted | null>(null);
   const [busy, setBusy] = useState(false);
 
   const stacks = useMemo(() => {
@@ -81,16 +87,22 @@ export function Dashboard({ live, health }: Props) {
     void queryClient.invalidateQueries({ queryKey: ["snapshot"] });
   }
 
-  async function runAction(name: string, action: StackAction) {
-    setBusy(true);
-    try {
-      const result = await post<ActionResult>(API.stackAction(name, action));
-      notify(`${name} · ${action}：${result.ok ? "成功" : "失败"} ${result.message.slice(0, 100)}`);
+  const onTaskFinished = useCallback(
+    (result: TaskFinished) => {
+      notify(result.ok ? "操作完成" : `操作失败（退出码 ${result.exitCode}）`);
       refresh();
+    },
+    // refresh 每次渲染都会新建，这里只依赖 queryClient 保持稳定
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  async function runAction(name: string, action: StackAction) {
+    try {
+      const started = await post<TaskStarted>(API.stackAction(name, action));
+      setTask(started);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "操作失败");
-    } finally {
-      setBusy(false);
+      notify(error instanceof Error ? error.message : "操作启动失败");
     }
   }
 
@@ -197,6 +209,7 @@ export function Dashboard({ live, health }: Props) {
               </button>
             ))}
           </div>
+          <button className="ghost" onClick={() => setShowConvert(true)}>run 转 compose</button>
           <button className="primary" onClick={() => setShowCreate(true)}>新建栈</button>
         </div>
 
@@ -273,6 +286,14 @@ export function Dashboard({ live, health }: Props) {
           onClose={() => setActive(null)}
           onChanged={refresh}
           onNotice={notify}
+        />
+      )}
+      {showConvert && <ConvertTool onClose={() => setShowConvert(false)} onNotice={notify} />}
+      {task && (
+        <TaskProgress
+          task={task}
+          onClose={() => setTask(null)}
+          onFinished={onTaskFinished}
         />
       )}
       {notice && <div className="toast">{notice}</div>}
