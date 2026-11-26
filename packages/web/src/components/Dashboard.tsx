@@ -70,7 +70,7 @@ export function Dashboard({ live, health }: Props) {
       setSelectedService(null);
       return;
     }
-    const names = active.services.map((c) => c.name);
+    const names = active.services.map((c) => c.service || c.name);
     if (!selectedService || !names.includes(selectedService)) {
       setSelectedService(names[0] ?? null);
     }
