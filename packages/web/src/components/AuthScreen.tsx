@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { API } from "@dockermanager/shared";
-import { post } from "../api";
+import { postLocal } from "../api";
 
 interface Props {
   mode: "login" | "setup";
@@ -19,7 +19,7 @@ export function AuthScreen({ mode }: Props) {
     setBusy(true);
     setError("");
     try {
-      await post(mode === "setup" ? API.setup : API.login, { password, token });
+      await postLocal(mode === "setup" ? API.setup : API.login, { password, token });
       await queryClient.invalidateQueries({ queryKey: ["health"] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "操作失败");

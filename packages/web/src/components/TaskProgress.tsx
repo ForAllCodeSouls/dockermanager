@@ -9,6 +9,9 @@ interface Props {
 }
 
 export function TaskProgress({ task, onClose, onFinished }: Props) {
+  const actionLabel = task.action.startsWith("service:")
+    ? `服务 ${task.action.slice("service:".length)}`
+    : task.action;
   const [lines, setLines] = useState<TaskLine[]>([]);
   const [done, setDone] = useState<TaskFinished | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -51,7 +54,7 @@ export function TaskProgress({ task, onClose, onFinished }: Props) {
       <aside className="drawer task-drawer" onClick={(e) => e.stopPropagation()}>
         <header className="drawer-head">
           <div>
-            <h2>{task.action} · {task.stack}</h2>
+            <h2>{actionLabel} · {task.stack}</h2>
             <span className={`status ${done ? (done.ok ? "running" : "error") : "partial"}`}>
               {done ? (done.ok ? "完成" : `失败 (${done.exitCode})`) : "执行中"}
             </span>

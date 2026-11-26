@@ -2,8 +2,16 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
-import { API, type ComposePayload, type StackInfo } from "@dockermanager/shared";
-import { apiFetch, put, scopedUrl } from "../api";
+import {
+  API,
+  type ComposePayload,
+  type ContainerInfo,
+  type ServiceAction,
+  type StackInfo,
+  type TaskStarted,
+  type ValidateResponse,
+} from "@dockermanager/shared";
+import { apiFetch, getCurrentHost, post, put, scopedUrl } from "../api";
 import { TerminalView } from "./Terminal";
 
 interface Props {
@@ -11,9 +19,58 @@ interface Props {
   onClose: () => void;
   onChanged: () => void;
   onNotice: (message: string) => void;
+  onTask: (task: TaskStarted) => void;
 }
 
-function LogView({ stack, service }: { stack: string; service: string }) {
+const serviceActions: { action: ServiceAction; label: string }[] = [
+  { action: "start", label: "启动" },
+  { action: "stop", label: "停止" },
+  { action: "restart", label: "重启" },
+  { action: "pull", label: "拉取" },
+];
+
+function ServiceRows({
+  services,
+  onSelect,
+  onAction,
+}: {
+  services: ContainerInfo[];
+  onSelect: (service: string) => void;
+  onAction: (service: string, action: ServiceAction) => void;
+}) {
+  return (
+    <div className="service-rows">
+      {services.map((container) => (
+        <div className="service-row" key={container.id}>
+          <button className="service-select" onClick={() => onSelect(container.name)}>
+            {container.name}
+          </button>
+          <span className="service-mini-actions">
+            {serviceActions.map((item) => (
+              <button
+                key={item.action}
+                title={`${item.label}服务 ${container.name}`}
+                onClick={() => onAction(container.name, item.action)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LogView({
+  stack,
+  service,
+  host,
+}: {
+  stack: string;
+  service: string;
+  host: string;
+}) {
   const [lines, setLines] = useState<string[]>([]);
   useEffect(() => {
     setLines([]);
@@ -27,13 +84,14 @@ function LogView({ stack, service }: { stack: string; service: string }) {
       }
     };
     return () => source.close();
-  }, [stack, service]);
+  }, [stack, service, host]);
   return <pre className="log-view">{lines.join("\n")}</pre>;
 }
 
-export function StackEditor({ stack, onClose, onChanged, onNotice }: Props) {
+export function StackEditor({ stack, onClose, onChanged, onNotice, onTask }: Props) {
+  const host = getCurrentHost();
   const query = useQuery({
-    queryKey: ["stack", stack.name],
+    queryKey: ["stack", host, stack.name],
     queryFn: () => apiFetch<ComposePayload>(API.stack(stack.name)),
   });
   const [compose, setCompose] = useState("");
@@ -60,6 +118,41 @@ export function StackEditor({ stack, onClose, onChanged, onNotice }: Props) {
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "保存失败");
     }
+  }
+
+  async function validate() {
+    try {
+      const result = await post<ValidateResponse>(API.stackValidate(stack.name), {
+        compose,
+        env,
+      });
+      onNotice(result.message);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "校验失败");
+    }
+  }
+
+  async function runService(service: string, action: ServiceAction) {
+    try {
+      const started = await post<TaskStarted>(
+        API.stackServiceAction(stack.name, service, action),
+      );
+      onTask(started);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "服务操作启动失败");
+    }
+  }
+
+  function downloadCompose() {
+    const blob = new Blob([compose], { type: "text/yaml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${stack.name}-compose.yaml`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   const services = stack.services;
@@ -91,6 +184,7 @@ export function StackEditor({ stack, onClose, onChanged, onNotice }: Props) {
           {tab === "compose" && (
             <>
               {query.isLoading && <p className="muted">读取配置中…</p>}
+              {query.isError && <p className="inline-error">{String(query.error)}</p>}
               <div className="editor-label">compose.yaml</div>
               <CodeMirror
                 value={compose}
@@ -107,36 +201,44 @@ export function StackEditor({ stack, onClose, onChanged, onNotice }: Props) {
                 spellCheck={false}
                 rows={4}
               />
-              <button className="primary" onClick={save} disabled={!dirty}>
-                {dirty ? "保存更改" : "已保存"}
-              </button>
+              <div className="editor-actions">
+                <button className="ghost" onClick={() => void validate()}>校验配置</button>
+                <button className="ghost" onClick={downloadCompose} disabled={!compose}>
+                  下载 YAML
+                </button>
+                <button className="primary" onClick={() => void save()} disabled={!dirty}>
+                  {dirty ? "保存更改" : "已保存"}
+                </button>
+              </div>
             </>
           )}
 
           {tab === "terminal" && (
             <>
-              {services.length === 0 && <p className="muted">未检测到运行中的服务。</p>}
-              <div className="service-chips">
-                {services.map((c) => (
-                  <button key={c.id} onClick={() => setTerminalService(c.name)}>
-                    {c.name}
-                  </button>
-                ))}
-              </div>
-              {terminalService && <TerminalView stack={stack.name} service={terminalService} />}
+              {services.length === 0 && <p className="muted">未检测到服务。</p>}
+              <ServiceRows
+                services={services}
+                onSelect={setTerminalService}
+                onAction={(service, action) => void runService(service, action)}
+              />
+              {terminalService && (
+                <TerminalView host={host} stack={stack.name} service={terminalService} />
+              )}
             </>
           )}
 
           {tab === "logs" && (
             <>
-              <div className="service-chips">
-                {services.map((c) => (
-                  <button key={c.id} onClick={() => setLogService(c.name)}>
-                    {c.name}
-                  </button>
-                ))}
-              </div>
-              {logService ? <LogView stack={stack.name} service={logService} /> : <p className="muted">选择服务以查看日志。</p>}
+              <ServiceRows
+                services={services}
+                onSelect={setLogService}
+                onAction={(service, action) => void runService(service, action)}
+              />
+              {logService ? (
+                <LogView host={host} stack={stack.name} service={logService} />
+              ) : (
+                <p className="muted">选择服务以查看日志。</p>
+              )}
             </>
           )}
         </div>

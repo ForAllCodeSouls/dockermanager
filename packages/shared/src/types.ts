@@ -97,6 +97,13 @@ export interface ComposePayload {
 
 export type StackAction = "start" | "stop" | "restart" | "update" | "down" | "pull";
 
+export type ServiceAction = "start" | "stop" | "restart" | "pull";
+
+export interface ValidateResponse {
+  ok: boolean;
+  message: string;
+}
+
 export interface BatchRequest {
   names: string[];
   action: StackAction;

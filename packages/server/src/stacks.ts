@@ -11,6 +11,7 @@ import {
   type StackAction,
   type StackInfo,
   type StackStatus,
+  type ValidateResponse,
 } from "@dockermanager/shared";
 import { config } from "./config.js";
 import {
@@ -18,6 +19,7 @@ import {
   containersForProject,
   engineInfo,
   runCompose,
+  validateCompose,
 } from "./docker.js";
 import { eventBus } from "./event-bus.js";
 import { appendAudit } from "./store.js";
@@ -138,6 +140,18 @@ export class StackManager {
     eventBus.publish("stack.deleted", { name });
     fs.rmSync(dir, { recursive: true, force: true });
     appendAudit({ actor: "admin", action: "stack.delete", target: name, detail: "删除栈目录", ok: true });
+  }
+
+  async validate(name: string, payload: ComposePayload): Promise<ValidateResponse> {
+    this.assertName(name);
+    if (!payload.compose?.trim()) {
+      return { ok: false, message: "compose 内容不能为空" };
+    }
+    const result = await validateCompose(name, payload.compose, payload.env ?? "");
+    return {
+      ok: result.ok,
+      message: result.ok ? "配置有效" : `配置校验失败：${result.output}`,
+    };
   }
 
   async action(name: string, action: StackAction): Promise<ActionResult> {

@@ -1,10 +1,13 @@
 import { useEffect, useRef } from "react";
 import { Terminal as Xterm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { API } from "@dockermanager/shared";
+import { getCurrentHost } from "../api";
 
 interface Props {
   stack: string;
   service: string;
+  host?: string;
 }
 
 interface TerminalFrame {
@@ -12,11 +15,12 @@ interface TerminalFrame {
   data?: string;
 }
 
-export function TerminalView({ stack, service }: Props) {
-  const host = useRef<HTMLDivElement>(null);
+export function TerminalView({ stack, service, host }: Props) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const hostId = host ?? getCurrentHost();
 
   useEffect(() => {
-    if (!host.current) return;
+    if (!hostRef.current) return;
     const term = new Xterm({
       cursorBlink: true,
       fontSize: 13,
@@ -26,18 +30,22 @@ export function TerminalView({ stack, service }: Props) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(host.current);
+    term.open(hostRef.current);
     fit.fit();
     term.focus();
 
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    const socket = new WebSocket(
-      `${protocol}//${location.host}/api/terminal?stack=${encodeURIComponent(stack)}&service=${encodeURIComponent(service)}`,
-    );
+    const query = new URLSearchParams({
+      host: hostId,
+      stack,
+      service,
+    });
+    const socket = new WebSocket(`${protocol}//${location.host}${API.terminal}?${query}`);
     socket.onmessage = (event) => {
       try {
         const frame = JSON.parse(event.data as string) as TerminalFrame;
         if (frame.type === "data" && frame.data) term.write(frame.data);
+        if (frame.type === "opened" && frame.data) term.write(`\r\n[${frame.data}]\r\n`);
         if (frame.type === "error" || frame.type === "closed") {
           term.write(`\r\n[${frame.type}] ${frame.data ?? ""}\r\n`);
         }
@@ -59,7 +67,7 @@ export function TerminalView({ stack, service }: Props) {
       socket.close();
       term.dispose();
     };
-  }, [stack, service]);
+  }, [stack, service, hostId]);
 
-  return <div className="terminal-host" ref={host} />;
+  return <div className="terminal-host" ref={hostRef} />;
 }

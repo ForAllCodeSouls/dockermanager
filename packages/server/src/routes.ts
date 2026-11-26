@@ -17,6 +17,7 @@ import {
   type SystemVersion,
   type TaskStarted,
   type UpdateStatus,
+  isValidStackName,
 } from "@dockermanager/shared";
 import {
   clearSessionCookie,
@@ -42,6 +43,8 @@ import { applyUpdate, checkForUpdate, selfLogs, updateStatus } from "./updater.j
 import { version } from "./version.js";
 
 const actions: StackAction[] = ["start", "stop", "restart", "update", "down", "pull"];
+const serviceActions = ["start", "stop", "restart", "pull"] as const;
+type ServiceActionName = (typeof serviceActions)[number];
 
 function fail(reply: FastifyReply, status: number, message: string) {
   return reply.code(status).send({ error: message });
@@ -157,6 +160,49 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return fail(reply, 400, error instanceof Error ? error.message : "删除失败");
     }
   });
+
+  app.post<{ Params: { name: string } }>(
+    "/api/stacks/:name/validate",
+    async (request, reply) => {
+      if (!isValidStackName(request.params.name)) {
+        return fail(reply, 400, "非法的栈名称");
+      }
+      try {
+        return await stacks.validate(
+          request.params.name,
+          (request.body ?? {}) as ComposePayload,
+        );
+      } catch (error) {
+        return fail(reply, 400, error instanceof Error ? error.message : "校验失败");
+      }
+    },
+  );
+
+  app.post<{ Params: { name: string; service: string; action: string } }>(
+    "/api/stacks/:name/services/:service/:action",
+    async (request, reply) => {
+      const { name, service, action } = request.params;
+      if (
+        !isValidStackName(name) ||
+        !/^[A-Za-z0-9_.-]+$/.test(service) ||
+        !serviceActions.includes(action as ServiceActionName)
+      ) {
+        return fail(reply, 400, "服务操作参数不合法");
+      }
+      const safeAction = action as ServiceActionName;
+      const args: Record<ServiceActionName, string[]> = {
+        start: ["up", "-d", "--no-deps", service],
+        stop: ["stop", service],
+        restart: ["restart", service],
+        pull: ["pull", service],
+      };
+      return startTask({
+        stack: name,
+        action: `service:${safeAction} ${service}`,
+        args: [args[safeAction]],
+      });
+    },
+  );
 
   for (const action of actions) {
     app.post<{ Params: { name: string } }>(

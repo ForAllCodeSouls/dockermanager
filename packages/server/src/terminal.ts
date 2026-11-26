@@ -2,16 +2,19 @@ import type { FastifyInstance } from "fastify";
 import type { IncomingMessage } from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
-import { WebSocketServer, type WebSocket } from "ws";
-import { isValidStackName } from "@dockermanager/shared";
+import { WebSocket, WebSocketServer } from "ws";
+import { API, isValidStackName } from "@dockermanager/shared";
 import { config } from "./config.js";
 import { verifyToken } from "./auth.js";
 import { composeFileFor } from "./docker.js";
+import { findAgent } from "./hosts.js";
 
 interface TerminalMessage {
   type: "opened" | "data" | "error" | "closed";
   data?: string;
 }
+
+type AgentConfig = NonNullable<ReturnType<typeof findAgent>>;
 
 function parseCookies(header: string | undefined): Record<string, string> {
   const result: Record<string, string> = {};
@@ -22,6 +25,91 @@ function parseCookies(header: string | undefined): Record<string, string> {
     }
   }
   return result;
+}
+
+function authorizeUpgrade(request: IncomingMessage): boolean {
+  const cookies = parseCookies(request.headers.cookie);
+  if (verifyToken(cookies[config.cookieName])) return true;
+  // agent 部署没有浏览器会话，使用共享密钥的 Bearer Token。
+  if (
+    config.mode === "agent" &&
+    config.agentToken &&
+    request.headers.authorization === `Bearer ${config.agentToken}`
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function send(ws: WebSocket, message: TerminalMessage): void {
+  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
+}
+
+function wsUrlFor(agent: AgentConfig, stack: string, service: string): string {
+  const base = agent.url.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
+  return `${base}${API.terminal}?stack=${encodeURIComponent(stack)}&service=${encodeURIComponent(service)}`;
+}
+
+function proxyTerminal(ws: WebSocket, agent: AgentConfig, stack: string, service: string): void {
+  if (!agent.token) {
+    send(ws, { type: "error", data: `远程主机 ${agent.name} 未配置访问令牌` });
+    ws.close();
+    return;
+  }
+
+  let upstream: WebSocket;
+  try {
+    upstream = new WebSocket(wsUrlFor(agent, stack, service), {
+      headers: { Authorization: `Bearer ${agent.token}` },
+    });
+  } catch (error) {
+    send(ws, {
+      type: "error",
+      data: `远程终端连接失败：${error instanceof Error ? error.message : String(error)}`,
+    });
+    ws.close();
+    return;
+  }
+
+  let closed = false;
+  const pending: string[] = [];
+  const closeBoth = () => {
+    if (closed) return;
+    closed = true;
+    if (upstream.readyState !== upstream.CLOSED) upstream.close();
+    if (ws.readyState === ws.OPEN) ws.close();
+  };
+  const forward = (data: string) => {
+    if (upstream.readyState === upstream.OPEN) {
+      upstream.send(data);
+      return;
+    }
+    // 上游WebSocket尚未建立时暂存少量输入，避免用户第一击键被丢弃。
+    pending.push(data);
+    if (pending.length > 100) pending.shift();
+  };
+
+  upstream.on("open", () => {
+    for (const data of pending.splice(0)) upstream.send(data);
+    send(ws, { type: "opened", data: `已连接远程主机 ${agent.name}` });
+  });
+  upstream.on("message", (data) => {
+    if (ws.readyState === ws.OPEN) ws.send(data.toString());
+  });
+  upstream.on("error", (error) => {
+    send(ws, { type: "error", data: `远程终端连接失败：${error.message}` });
+    closeBoth();
+  });
+  upstream.on("close", () => {
+    if (ws.readyState === ws.OPEN) ws.close();
+  });
+
+  ws.on("message", (data) => {
+    forward(data.toString());
+  });
+  ws.on("close", () => {
+    if (upstream.readyState !== upstream.CLOSED) upstream.close();
+  });
 }
 
 export function setupTerminal(app: FastifyInstance): void {
@@ -35,10 +123,9 @@ export function setupTerminal(app: FastifyInstance): void {
       socket.destroy();
       return;
     }
-    if (url.pathname !== "/api/terminal") return;
+    if (url.pathname !== API.terminal) return;
 
-    const cookies = parseCookies(request.headers.cookie);
-    if (!verifyToken(cookies[config.cookieName])) {
+    if (!authorizeUpgrade(request)) {
       socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;
@@ -50,12 +137,30 @@ export function setupTerminal(app: FastifyInstance): void {
     const url = new URL(request.url ?? "/", "http://localhost");
     const stack = url.searchParams.get("stack") ?? "";
     const service = url.searchParams.get("service") ?? "";
+    const hostId = url.searchParams.get("host") ?? "local";
 
-    if (!isValidStackName(stack) || !service || !/^[A-Za-z0-9_.-]+$/.test(service)) {
+    if (
+      !isValidStackName(stack) ||
+      !service ||
+      !/^[A-Za-z0-9_.-]+$/.test(service) ||
+      !/^[A-Za-z0-9_.-]+$/.test(hostId)
+    ) {
       send(ws, { type: "error", data: "参数不合法" });
       ws.close();
       return;
     }
+
+    if (hostId !== "local") {
+      const agent = findAgent(hostId);
+      if (!agent) {
+        send(ws, { type: "error", data: `未知主机 ${hostId}` });
+        ws.close();
+        return;
+      }
+      proxyTerminal(ws, agent, stack, service);
+      return;
+    }
+
     const composeFile = composeFileFor(stack);
     if (!composeFile) {
       send(ws, { type: "error", data: "栈不存在" });
@@ -73,15 +178,13 @@ export function setupTerminal(app: FastifyInstance): void {
       },
     );
 
-    let replay = "";
-    const push = (text: string) => {
-      replay += text;
-      if (replay.length > 20000) replay = replay.slice(-20000);
-      send(ws, { type: "data", data: text });
-    };
-
-    child.stdout?.on("data", (chunk: Buffer) => push(chunk.toString("utf8")));
-    child.stderr?.on("data", (chunk: Buffer) => push(chunk.toString("utf8")));
+    send(ws, { type: "opened", data: "终端已连接" });
+    child.stdout?.on("data", (chunk: Buffer) => {
+      send(ws, { type: "data", data: chunk.toString("utf8") });
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      send(ws, { type: "data", data: chunk.toString("utf8") });
+    });
     child.on("error", (error) => send(ws, { type: "error", data: error.message }));
     child.on("close", (code) => {
       send(ws, { type: "closed", data: `会话结束，退出码 ${code}` });
@@ -95,8 +198,4 @@ export function setupTerminal(app: FastifyInstance): void {
       child.kill();
     });
   });
-}
-
-function send(ws: WebSocket, message: TerminalMessage): void {
-  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { API, type HostsResponse } from "@dockermanager/shared";
-import { apiFetch, getCurrentHost, setCurrentHost } from "../api";
+import { apiFetchLocal, getCurrentHost, setCurrentHost } from "../api";
 
 interface Props {
   onHostChanged: () => void;
@@ -12,7 +12,7 @@ export function HostSwitcher({ onHostChanged }: Props) {
   const [host, setHost] = useState(getCurrentHost());
   const hosts = useQuery({
     queryKey: ["hosts"],
-    queryFn: () => apiFetch<HostsResponse>(API.hosts),
+    queryFn: () => apiFetchLocal<HostsResponse>(API.hosts),
     refetchInterval: 15000,
   });
 

@@ -17,8 +17,8 @@ function scoped(path: string): string {
   return API.proxy(currentHost, path.replace(/^\/api\//, ""));
 }
 
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(scoped(path), {
+async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
     credentials: "same-origin",
     ...init,
     headers: {
@@ -33,8 +33,22 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return (await response.json()) as T;
 }
 
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  return request<T>(scoped(path), init);
+}
+
+/** 主机列表本身永远属于主实例，不能跟随当前主机被代理。 */
+export async function apiFetchLocal<T>(path: string): Promise<T> {
+  return request<T>(path);
+}
+
 export function post<T>(path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(path, { method: "POST", body: JSON.stringify(body ?? {}) });
+}
+
+/** 认证相关请求永远发往主实例，不跟随当前主机代理。 */
+export function postLocal<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>(path, { method: "POST", body: JSON.stringify(body ?? {}) });
 }
 
 export function put<T>(path: string, body: unknown): Promise<T> {

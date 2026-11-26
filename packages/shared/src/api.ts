@@ -7,6 +7,10 @@ export const API = {
   stack: (name: string) => `/api/stacks/${encodeURIComponent(name)}`,
   stackAction: (name: string, action: string) =>
     `/api/stacks/${encodeURIComponent(name)}/${action}`,
+  stackValidate: (name: string) =>
+    `/api/stacks/${encodeURIComponent(name)}/validate`,
+  stackServiceAction: (name: string, service: string, action: string) =>
+    `/api/stacks/${encodeURIComponent(name)}/services/${encodeURIComponent(service)}/${action}`,
   batch: "/api/stacks/batch",
   events: "/api/events",
   audit: "/api/audit",
@@ -24,8 +28,14 @@ export const API = {
   convertRun: "/api/tools/convert-run",
   stats: "/api/stats",
   hosts: "/api/hosts",
-  proxy: (hostId: string, path: string) =>
-    `/api/host/${encodeURIComponent(hostId)}${path}`,
+  proxy: (hostId: string, path: string) => {
+    const suffix = path.startsWith("/api/")
+      ? path.slice(4)
+      : path.startsWith("/")
+        ? path
+        : `/${path}`;
+    return `/api/host/${encodeURIComponent(hostId)}${suffix}`;
+  },
 } as const;
 
 export const STACK_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;

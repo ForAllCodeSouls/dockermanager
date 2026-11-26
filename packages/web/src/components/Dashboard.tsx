@@ -12,7 +12,7 @@ import {
   type TaskFinished,
   type TaskStarted,
 } from "@dockermanager/shared";
-import { apiFetch, del, post, put } from "../api";
+import { apiFetch, del, getCurrentHost, post, postLocal, put, setCurrentHost } from "../api";
 import type { LiveState } from "../live";
 import { AuditPanel, DiagnosticsPanel } from "./Panels";
 import { StackEditor } from "./StackEditor";
@@ -44,8 +44,9 @@ const connectionLabel: Record<LiveState["status"], string> = {
 
 export function Dashboard({ live, health }: Props) {
   const queryClient = useQueryClient();
+  const host = getCurrentHost();
   const snapshot = useQuery({
-    queryKey: ["snapshot"],
+    queryKey: ["snapshot", host],
     queryFn: () => apiFetch<Snapshot>(API.snapshot),
   });
   const [search, setSearch] = useState("");
@@ -106,12 +107,12 @@ export function Dashboard({ live, health }: Props) {
     }
   }
 
-  async function runBatch(action: StackAction) {
-    if (selected.length === 0) return;
+  async function runBatch(action: StackAction, names: string[] = selected) {
+    if (names.length === 0) return;
     setBusy(true);
     try {
       const result = await post<{ results: ActionResult[] }>(API.batch, {
-        names: selected,
+        names: [...names],
         action,
       } satisfies BatchRequest);
       const failed = result.results.filter((r) => !r.ok).length;
@@ -122,6 +123,10 @@ export function Dashboard({ live, health }: Props) {
     } finally {
       setBusy(false);
     }
+  }
+
+  function runAll(action: StackAction) {
+    void runBatch(action, stacks.map((item) => item.name));
   }
 
   async function createStack() {
@@ -156,7 +161,9 @@ export function Dashboard({ live, health }: Props) {
   }
 
   async function logout() {
-    await post(API.logout);
+    await postLocal(API.logout);
+    setCurrentHost("local");
+    queryClient.clear();
     await queryClient.invalidateQueries({ queryKey: ["health"] });
   }
 
@@ -210,6 +217,20 @@ export function Dashboard({ live, health }: Props) {
               </button>
             ))}
           </div>
+          <button
+            className="ghost"
+            disabled={busy || stacks.length === 0}
+            onClick={() => runAll("pull")}
+          >
+            全部拉取
+          </button>
+          <button
+            className="ghost"
+            disabled={busy || stacks.length === 0}
+            onClick={() => runAll("update")}
+          >
+            全部更新
+          </button>
           <button className="ghost" onClick={() => setShowConvert(true)}>run 转 compose</button>
           <button className="primary" onClick={() => setShowCreate(true)}>新建栈</button>
         </div>
@@ -291,6 +312,7 @@ export function Dashboard({ live, health }: Props) {
           onClose={() => setActive(null)}
           onChanged={refresh}
           onNotice={notify}
+          onTask={setTask}
         />
       )}
       {showConvert && <ConvertTool onClose={() => setShowConvert(false)} onNotice={notify} />}

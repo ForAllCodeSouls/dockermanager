@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { API, type HealthResponse } from "@dockermanager/shared";
-import { apiFetch } from "./api";
+import { apiFetchLocal } from "./api";
 import { useLiveConnection } from "./live";
 import { AuthScreen } from "./components/AuthScreen";
 import { Dashboard } from "./components/Dashboard";
@@ -8,7 +8,7 @@ import { Dashboard } from "./components/Dashboard";
 export default function App() {
   const health = useQuery({
     queryKey: ["health"],
-    queryFn: () => apiFetch<HealthResponse>(API.health),
+    queryFn: () => apiFetchLocal<HealthResponse>(API.health),
     retry: 1,
   });
   const authenticated = health.data?.authenticated ?? false;
