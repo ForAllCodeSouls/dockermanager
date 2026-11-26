@@ -32,13 +32,15 @@ const eventTypes = [
   "update.failed",
 ];
 
-export function useLiveConnection(enabled: boolean): LiveState {
+export function useLiveConnection(enabled: boolean, host: string): LiveState {
   const queryClient = useQueryClient();
   const [state, setState] = useState<LiveState>(initial);
   const seenSeq = useRef(0);
 
   useEffect(() => {
     if (!enabled) return;
+    // 主机切换后事件序号属于新的事件流，必须重新计数。
+    seenSeq.current = 0;
     let disposed = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     let flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -129,7 +131,7 @@ export function useLiveConnection(enabled: boolean): LiveState {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
     };
-  }, [enabled, queryClient]);
+  }, [enabled, host, queryClient]);
 
   return state;
 }

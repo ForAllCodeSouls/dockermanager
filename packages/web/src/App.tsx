@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { API, type HealthResponse } from "@dockermanager/shared";
-import { apiFetchLocal } from "./api";
+import { apiFetchLocal, getCurrentHost } from "./api";
 import { useLiveConnection } from "./live";
 import { AuthScreen } from "./components/AuthScreen";
 import { Dashboard } from "./components/Dashboard";
@@ -12,7 +12,7 @@ export default function App() {
     retry: 1,
   });
   const authenticated = health.data?.authenticated ?? false;
-  const live = useLiveConnection(authenticated);
+  const live = useLiveConnection(authenticated, getCurrentHost());
 
   if (health.isLoading) return <div className="splash">正在连接 DockerManager…</div>;
   if (health.error) {
