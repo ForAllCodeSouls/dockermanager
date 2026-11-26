@@ -41,191 +41,43 @@ function imageId(image: string): Promise<string | null> {
 }
 
 /**
- * 重建容器时，运行期环境变量（含用户配置）来自旧容器，但镜像内烘焙的
- * APP_VERSION / APP_COMMIT / APP_BUILD_TIME 必须取自新镜像，否则诊断面板
- * 会一直显示旧版本号。其余变量保留旧容器的值（用户配置不能被覆盖）。
+ * 启动一个一次性 helper 容器来执行真正的容器重建。
+ *
+ * 绝对不能让主进程自己 stop() 自己：容器内 node 是 PID 1，stop 会杀死进程，
+ * 后续 remove/create/start 无法执行，容器停在 exited（restart policy 对显式
+ * stop 无效），站点 502。helper 是独立容器，它去操作主容器，二者分离。
+ *
+ * helper：
+ *  - 用新镜像（里面已经包含 updater-agent.js 与重建逻辑）
+ *  - 挂载 docker.sock 以操作主容器
+ *  - 通过环境变量拿到目标容器名 / 新镜像 / 旧镜像 ID
+ *  - AutoRemove，执行完自清理
+ *  - 只操作主容器，不碰其他容器与宿主机文件
  */
-function mergedEnv(
-  containerEnv: string[] | undefined,
-  imageEnv: string[] | undefined,
-): string[] | undefined {
-  if (!containerEnv) return imageEnv;
-  const out = [...containerEnv];
-  const versionKeys = ["APP_VERSION", "APP_COMMIT", "APP_BUILD_TIME"];
-  for (const key of versionKeys) {
-    const fromImage = imageEnv?.find((entry) => entry.startsWith(`${key}=`));
-    if (!fromImage) continue;
-    const index = out.findIndex((entry) => entry.startsWith(`${key}=`));
-    if (index >= 0) out[index] = fromImage;
-    else out.push(fromImage);
-  }
-  return out;
-}
+async function launchHelper(newImage: string, previousImageId: string | null): Promise<void> {
+  const targetName = os.hostname().slice(0, 64);
+  const helperName = `dockermanager-updater-${Date.now()}`;
 
-/** 从容器 inspect 结果中挑选可用于重建的 HostConfig 字段（白名单，避免派生字段导致 create 报错）。 */
-function recreateHostConfig(info: Docker.ContainerInspectInfo): Docker.HostConfig {
-  const hc = info.HostConfig;
-  // HostConfig.Binds 只含 bind mounts；named volume（如 data 卷）在 info.Mounts 里。
-  // 若只复制 Binds，重建后容器会丢失 /app/data 卷，导致密码与审计数据丢失。
-  const namedVolumes = (info.Mounts ?? [])
-    .filter((m) => m.Type === "volume" && m.Name)
-    .map((m) => `${m.Name}:${m.Destination}:${m.RW ? "rw" : "ro"}`);
-  const binds = [...(hc.Binds ?? []), ...namedVolumes];
-  const picked: Docker.HostConfig = {
-    Binds: binds.length > 0 ? binds : hc.Binds,
-    PortBindings: hc.PortBindings,
-    Links: hc.Links,
-    Privileged: hc.Privileged,
-    CapAdd: hc.CapAdd,
-    CapDrop: hc.CapDrop,
-    RestartPolicy: hc.RestartPolicy,
-    Devices: hc.Devices,
-    Dns: hc.Dns,
-    DnsOptions: hc.DnsOptions,
-    DnsSearch: hc.DnsSearch,
-    ExtraHosts: hc.ExtraHosts,
-    VolumesFrom: hc.VolumesFrom,
-    LogConfig: hc.LogConfig,
-    ShmSize: hc.ShmSize,
-    AutoRemove: hc.AutoRemove,
-    Init: hc.Init,
-    ReadonlyRootfs: hc.ReadonlyRootfs,
-    SecurityOpt: hc.SecurityOpt,
-    Sysctls: hc.Sysctls,
-    Ulimits: hc.Ulimits,
-    GroupAdd: hc.GroupAdd,
-    Isolation: hc.Isolation,
-    Runtime: hc.Runtime,
-    CgroupParent: hc.CgroupParent,
-    PublishAllPorts: hc.PublishAllPorts,
-    Memory: hc.Memory,
-    MemoryReservation: hc.MemoryReservation,
-    MemorySwap: hc.MemorySwap,
-    NanoCpus: hc.NanoCpus,
-    CpuShares: hc.CpuShares,
-    CpuQuota: hc.CpuQuota,
-    CpuPeriod: hc.CpuPeriod,
-    CpusetCpus: hc.CpusetCpus,
-    CpusetMems: hc.CpusetMems,
-  };
+  eventBus.publish("update.applied", { image: newImage, phase: "launching-helper" });
 
-  // 自定义网络（compose 项目网络）通过 NetworkingConfig 连接，
-  // 这里把 NetworkMode 设为第一个网络名，避免与 EndpointsConfig 冲突。
-  const networkNames = Object.keys(info.NetworkSettings?.Networks ?? {});
-  const mode = hc.NetworkMode ?? "default";
-  const isSpecial = ["host", "none", "bridge", "container", "default"].some((n) =>
-    mode === n || mode.startsWith(`${n}:`),
-  );
-  if (!isSpecial && networkNames.length > 0) {
-    picked.NetworkMode = networkNames[0];
-  } else {
-    picked.NetworkMode = mode;
-  }
-
-  for (const key of Object.keys(picked) as (keyof Docker.HostConfig)[]) {
-    if (picked[key] === undefined) delete picked[key];
-  }
-  return picked;
-}
-
-/**
- * NetworkSettings.Networks 里的 IPAddress / Gateway / EndpointID / MacAddress
- * 等都是 Docker 运行后写入的只读派生字段。直接回填到 EndpointsConfig 会让
- * createContainer 报 "endpoint with name ... already exists" 之类的错误，
- * 上一次自更新因此把容器删掉后无法重建，直接导致站点 502。
- * 这里只保留 Docker API 允许在 create 时传入的可写字段。
- */
-export function recreatableEndpoints(
-  networks: Docker.ContainerInspectInfo["NetworkSettings"]["Networks"],
-): Record<string, Docker.EndpointSettings> | undefined {
-  if (!networks || Object.keys(networks).length === 0) return undefined;
-  const endpoints: Record<string, Docker.EndpointSettings> = {};
-  for (const [networkName, endpoint] of Object.entries(networks)) {
-    if (!endpoint) continue;
-    const clean: Docker.EndpointSettings = {};
-    if (endpoint.Aliases?.length) clean.Aliases = endpoint.Aliases;
-    if (endpoint.IPAMConfig) clean.IPAMConfig = endpoint.IPAMConfig;
-    if (endpoint.Links?.length) clean.Links = endpoint.Links;
-    endpoints[networkName] = clean;
-  }
-  return Object.keys(endpoints).length > 0 ? endpoints : undefined;
-}
-
-/**
- * 用新镜像重建自身容器。docker restart 只会重启原容器、沿用旧镜像层，
- * 因此必须 create(新镜像) → stop/remove(旧) → start(新)，才能真正应用更新。
- * 只操作自身容器，不触碰任何其他容器或宿主机文件。
- */
-async function recreateSelf(newImage: string, previousImageId: string | null): Promise<void> {
-  const self = selfContainer();
-  const info = await self.inspect();
-  const name = info.Name.replace(/^\//, "");
-  const newImageInfo = await docker.getImage(newImage).inspect().catch(() => null);
-  const endpoints = recreatableEndpoints(info.NetworkSettings?.Networks);
-
-  const createOptions: Docker.ContainerCreateOptions = {
-    name,
+  const helper = await docker.createContainer({
+    name: helperName,
     Image: newImage,
-    Env: mergedEnv(info.Config.Env, newImageInfo?.Config?.Env),
-    Labels: info.Config.Labels,
-    Cmd: info.Config.Cmd,
-    Entrypoint: info.Config.Entrypoint,
-    WorkingDir: info.Config.WorkingDir,
-    User: info.Config.User,
-    Tty: info.Config.Tty,
-    OpenStdin: info.Config.OpenStdin,
-    ExposedPorts: info.Config.ExposedPorts,
-    Volumes: info.Config.Volumes,
-    Healthcheck: info.Config.Healthcheck,
-    HostConfig: recreateHostConfig(info),
-    NetworkingConfig: endpoints ? { EndpointsConfig: endpoints } : undefined,
-  };
-
-  // 关键安全网：先用临时名字 create 一次（不 start，不占端口、不碰旧容器），
-  // 让 Docker 校验所有 HostConfig / NetworkingConfig 字段。预检失败就原样返回，
-  // 绝不 stop/remove 正在服务的容器——上次 502 正是因为跳过这一步。
-  eventBus.publish("update.applied", { image: newImage, phase: "preflight" });
-  const probeName = `${name}-update-probe-${Date.now()}`;
-  let probe: Docker.Container | null = null;
-  try {
-    probe = await docker.createContainer({
-      ...createOptions,
-      name: probeName,
-      // 预检容器不抢端口，也不接真实流量
-      HostConfig: { ...createOptions.HostConfig, PortBindings: undefined },
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    eventBus.publish("update.failed", { error: `更新预检失败，已保留原容器: ${message}` });
-    throw new Error(`更新预检失败，已保留原容器: ${message}`);
-  } finally {
-    if (probe) await probe.remove({ force: true }).catch(() => undefined);
-  }
-
-  eventBus.publish("update.applied", { image: newImage, phase: "recreating" });
-  await self.stop({ t: 15 });
-  await self.remove();
-
-  let created: Docker.Container | null = null;
-  try {
-    created = await docker.createContainer(createOptions);
-    await created.start();
-  } catch (error) {
-    // 恢复：用旧镜像 ID 重建，尽量把服务拉回来
-    const message = error instanceof Error ? error.message : String(error);
-    if (created) await created.remove({ force: true }).catch(() => undefined);
-    try {
-      const rollbackImage = previousImageId || info.Config.Image;
-      const restored = await docker.createContainer({ ...createOptions, Image: rollbackImage });
-      await restored.start();
-      eventBus.publish("update.failed", { error: `更新失败已回滚: ${message}` });
-    } catch (rollbackError) {
-      eventBus.publish("update.failed", {
-        error: `更新失败且回滚失败: ${message}; ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
-      });
-    }
-    throw error;
-  }
+    Env: [
+      `UPDATE_TARGET=${targetName}`,
+      `UPDATE_IMAGE=${newImage}`,
+      `UPDATE_PREVIOUS_IMAGE=${previousImageId ?? ""}`,
+    ],
+    Entrypoint: ["node"],
+    Cmd: ["packages/server/dist/updater-agent.js"],
+    WorkingDir: "/app",
+    HostConfig: {
+      Binds: ["/var/run/docker.sock:/var/run/docker.sock"],
+      AutoRemove: true,
+      // helper 不对外暴露端口，也不复制主容器的网络/卷配置。
+    },
+  });
+  await helper.start();
 }
 
 export async function checkForUpdate(): Promise<UpdateStatus> {
@@ -237,10 +89,8 @@ export async function checkForUpdate(): Promise<UpdateStatus> {
     if (!image) throw new Error("无法确定镜像名称，请设置 IMAGE_NAME 环境变量");
     version.image = image;
 
-    // 关键：必须拿「容器当前正在运行的镜像 ID」作为比较基准，
-    // 而不是本地 tag 的镜像 ID。docker pull 会更新本地 tag，但不会改变
-    // 正在运行的容器；旧逻辑 pull 前后读的都是同一个 tag，因此永远判为
-    // 「已是最新」，容器从不重建，前端也就一直停留在旧 bundle。
+    // 以「容器当前正在运行的镜像 ID」为比较基准，而非本地 tag 的镜像 ID。
+    // docker pull 只更新本地 tag，不改变运行中的容器。
     const before = info?.Image ?? (await imageId(image));
     const stream = await docker.pull(image);
     await new Promise<void>((resolve, reject) => {
@@ -252,7 +102,6 @@ export async function checkForUpdate(): Promise<UpdateStatus> {
 
     updateStatus.currentImageId = before;
     updateStatus.latestImageId = after;
-    // 这里报告的是「正在运行」的镜像，诊断面板才不会谎报新版本。
     version.imageId = before;
     updateStatus.updateAvailable = Boolean(after && after !== before);
     updateStatus.lastCheckAt = new Date().toISOString();
@@ -274,8 +123,9 @@ export async function checkForUpdate(): Promise<UpdateStatus> {
 
 function scheduleApply(previousImageId: string | null): void {
   const timer = setTimeout(() => {
-    void recreateSelf(version.image, previousImageId).catch((error) => {
+    void launchHelper(version.image, previousImageId).catch((error) => {
       updateStatus.lastError = error instanceof Error ? error.message : String(error);
+      eventBus.publish("update.failed", { error: updateStatus.lastError });
     });
   }, 1500);
   timer.unref();
@@ -286,9 +136,9 @@ export async function applyUpdate(): Promise<{ ok: boolean; message: string }> {
   if (status.lastError) return { ok: false, message: status.lastError };
   if (!status.updateAvailable) return { ok: true, message: "已是最新版本" };
   updateStatus.appliedAt = new Date().toISOString();
-  // 用旧镜像 ID 作为回滚兜底
+  // 用旧镜像 ID 作为回滚兜底，交给 helper 容器。
   scheduleApply(status.currentImageId);
-  return { ok: true, message: "发现新版本，正在用新镜像重建自身以应用更新" };
+  return { ok: true, message: "发现新版本，已启动更新器用新镜像重建自身" };
 }
 
 export function startUpdater(): void {

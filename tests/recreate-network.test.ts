@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recreatableEndpoints } from "../packages/server/src/updater.js";
+import { recreatableEndpoints } from "../packages/server/src/recreate.js";
 
 // 模拟 docker inspect 返回的 NetworkSettings.Networks：
 // 里面混着大量 Docker 运行后才写入的只读派生字段。若把这些字段原样回填到
