@@ -13,7 +13,7 @@ mkdir -p /opt/stacks /opt/dockermanager
 ```yaml
 services:
   dockermanager:
-    image: ghcr.io/ForAllCodeSouls/dockermanager:dev
+    image: ghcr.io/forallsouls/dockermanager:dev
     container_name: dockermanager
     restart: unless-stopped
     ports:
@@ -30,7 +30,7 @@ services:
       AUTO_UPDATE: ${AUTO_UPDATE:-true}
       AUTO_UPDATE_APPLY: ${AUTO_UPDATE_APPLY:-true}
       UPDATE_INTERVAL_SECONDS: ${UPDATE_INTERVAL_SECONDS:-600}
-      IMAGE_NAME: ghcr.io/ForAllCodeSouls/dockermanager:dev
+      IMAGE_NAME: ghcr.io/forallsouls/dockermanager:dev
 ```
 
 启动并访问：
@@ -132,7 +132,7 @@ npm run dev:web
 ## CI / CD
 
 - `ci.yml`：push 与 PR 时执行依赖安装、构建、类型检查与单元测试。
-- `docker.yml`：push 到 `main` 发布 `ghcr.io/ForAllCodeSouls/dockermanager:dev`；推送 `v*` 标签发布 `:latest` 及版本标签。镜像元数据包含 commit SHA 与构建时间。
+- `docker.yml`：push 到 `main` 发布 `ghcr.io/forallsouls/dockermanager:dev`；推送 `v*` 标签发布 `:latest` 及版本标签。镜像元数据包含 commit SHA 与构建时间。
 
 ## 自更新
 
@@ -143,7 +143,7 @@ npm run dev:web
 | `AUTO_UPDATE` | `true` | 关闭后只保留手动更新 |
 | `AUTO_UPDATE_APPLY` | `true` | 发现新版本后自动重启自身容器 |
 | `UPDATE_INTERVAL_SECONDS` | `600` | 检查间隔，最小 60 秒 |
-| `IMAGE_NAME` | 空（自动检测） | 可显式指定 `ghcr.io/ForAllCodeSouls/dockermanager:dev` |
+| `IMAGE_NAME` | 空（自动检测） | 可显式指定 `ghcr.io/forallsouls/dockermanager:dev` |
 
 更新过程只做两件事：拉取自身镜像、重启自身容器。不修改宿主机文件、不重启其他容器、不安装宿主机脚本。若未挂载 docker.sock，检查会失败并在诊断面板显示原因。
 

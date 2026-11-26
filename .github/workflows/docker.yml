@@ -21,10 +21,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Normalize image name to lowercase
+        id: lower
+        run: |
+          echo "repo_lc=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/${{ github.repository }}
+          # Docker 只允许小写 repository name；github.repository 含大写 owner 时必须小写化
+          images: ghcr.io/${{ steps.lower.outputs.repo_lc }}
           tags: |
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/main' }}
             type=ref,event=tag
