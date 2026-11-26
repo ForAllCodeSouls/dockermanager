@@ -126,7 +126,9 @@ export function Dashboard({ live, health }: Props) {
   }
 
   function runAll(action: StackAction) {
-    void runBatch(action, stacks.map((item) => item.name));
+    // “全部”针对当前主机的所有栈，而不是搜索框过滤后的结果。
+    const allNames = (snapshot.data?.stacks ?? []).map((item) => item.name);
+    void runBatch(action, allNames);
   }
 
   async function createStack() {
