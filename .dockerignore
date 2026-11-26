@@ -1,0 +1,10 @@
+node_modules
+**/dist
+**/*.tsbuildinfo
+data
+stacks
+.git
+.github
+coverage
+*.log
+.env

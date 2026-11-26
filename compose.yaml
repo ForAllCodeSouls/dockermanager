@@ -1,0 +1,17 @@
+services:
+  stackdeck:
+    build: .
+    image: stackdeck:local
+    container_name: stackdeck
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/app/data
+      - /opt/stacks:/opt/stacks
+    environment:
+      TZ: Asia/Shanghai
+      STACKS_DIR: /opt/stacks
+      DATA_DIR: /app/data
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
