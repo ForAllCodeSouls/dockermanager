@@ -192,7 +192,18 @@ export function setupTerminal(app: FastifyInstance): void {
     });
 
     ws.on("message", (data) => {
-      child.stdin?.write(data.toString());
+      const raw = data.toString();
+      // 前端 xterm 发送 JSON 帧 {type,data}；兼容旧版纯文本帧。
+      let payload = raw;
+      try {
+        const frame = JSON.parse(raw) as { type?: string; data?: string };
+        // resize 帧只调整本端 xterm 显示，不向 shell 写入任何字节。
+        if (frame.type === "resize") return;
+        if (typeof frame.data === "string") payload = frame.data;
+      } catch {
+        // 纯文本帧，原样写入
+      }
+      child.stdin?.write(payload);
     });
     ws.on("close", () => {
       child.kill();
