@@ -121,12 +121,25 @@ export async function checkForUpdate(): Promise<UpdateStatus> {
   }
 }
 
+/**
+ * 全局重建互斥锁。checkForUpdate 可能被手动 API 与 autoApply 定时器同时触发，
+ * 若两次都 scheduleApply，就会拉起两个 helper 容器互相 stop/remove 对方创建的
+ * 容器，导致站点反复上下线并回滚到旧版本。这里保证同一时刻只有一个重建在跑。
+ */
+let applying = false;
+
 function scheduleApply(previousImageId: string | null): void {
+  if (applying) return;
+  applying = true;
   const timer = setTimeout(() => {
-    void launchHelper(version.image, previousImageId).catch((error) => {
-      updateStatus.lastError = error instanceof Error ? error.message : String(error);
-      eventBus.publish("update.failed", { error: updateStatus.lastError });
-    });
+    void launchHelper(version.image, previousImageId)
+      .catch((error) => {
+        updateStatus.lastError = error instanceof Error ? error.message : String(error);
+        eventBus.publish("update.failed", { error: updateStatus.lastError });
+      })
+      .finally(() => {
+        applying = false;
+      });
   }, 1500);
   timer.unref();
 }
