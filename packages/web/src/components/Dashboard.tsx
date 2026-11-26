@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   API,
   type ActionResult,
   type BatchRequest,
   type HealthResponse,
+  type ServerEvent,
   type Snapshot,
   type StackAction,
   type StackInfo,
@@ -60,6 +61,21 @@ export function Dashboard({ live, health }: Props) {
     setNotice(message);
     setTimeout(() => setNotice(""), 5000);
   }
+
+  useEffect(() => {
+    const onUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<ServerEvent>).detail;
+      if (detail.type === "update.applied") {
+        setNotice("已发现新版本，容器正在重启；页面将自动恢复连接");
+      } else if (detail.type === "update.available") {
+        setNotice("发现新版本，即将自动更新");
+      } else if (detail.type === "update.failed") {
+        setNotice("更新检查失败，请在诊断面板查看原因");
+      }
+    };
+    window.addEventListener("dockermanager:update", onUpdate);
+    return () => window.removeEventListener("dockermanager:update", onUpdate);
+  }, []);
 
   function refresh() {
     void queryClient.invalidateQueries({ queryKey: ["snapshot"] });
@@ -243,7 +259,7 @@ export function Dashboard({ live, health }: Props) {
         <div className="side-panel">
           <button className="ghost close-panel" onClick={() => setPanel("none")}>关闭</button>
           {panel === "audit" ? <AuditPanel /> : (
-            <DiagnosticsPanel live={live} snapshot={snapshot.data} health={health} />
+            <DiagnosticsPanel live={live} snapshot={snapshot.data} health={health} onNotice={notify} />
           )}
         </div>
       )}

@@ -42,6 +42,13 @@ export const config = {
   terminalReplayLines: 200,
   sessionMaxAgeSeconds: 60 * 60 * 24 * 30,
   cookieName: "dockermanager_session",
+  autoUpdate: process.env.AUTO_UPDATE !== "false",
+  autoUpdateApply: process.env.AUTO_UPDATE_APPLY !== "false",
+  autoUpdateIntervalSeconds: Math.max(
+    60,
+    Number(process.env.UPDATE_INTERVAL_SECONDS ?? 600),
+  ),
+  imageName: process.env.IMAGE_NAME ?? "",
 } as const;
 
 export type Config = typeof config;

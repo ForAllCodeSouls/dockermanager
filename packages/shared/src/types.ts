@@ -36,7 +36,10 @@ export type ServerEventType =
   | "stack.deleted"
   | "stack.status"
   | "audit.created"
-  | "system.health";
+  | "system.health"
+  | "update.available"
+  | "update.applied"
+  | "update.failed";
 
 export interface ServerEvent<T = unknown> {
   seq: number;
@@ -97,3 +100,43 @@ export interface AuditPage {
   entries: AuditEntry[];
   total: number;
 }
+
+export interface SystemVersion {
+  version: string;
+  commit: string;
+  buildTime: string;
+  image: string;
+  imageId: string | null;
+  startedAt: string;
+  node: string;
+}
+
+export interface UpdateStatus {
+  enabled: boolean;
+  autoApply: boolean;
+  intervalSeconds: number;
+  checking: boolean;
+  lastCheckAt: string | null;
+  lastError: string | null;
+  updateAvailable: boolean;
+  appliedAt: string | null;
+  currentImageId: string | null;
+  latestImageId: string | null;
+}
+
+export interface DiagnosticsBundle {
+  generatedAt: string;
+  version: SystemVersion;
+  update: UpdateStatus;
+  health: HealthResponse;
+  snapshot: Snapshot;
+  audit: AuditPage;
+  logs: string[];
+  note: string;
+}
+
+export interface DebugTokenResponse {
+  url: string;
+  expiresAt: string;
+}
+

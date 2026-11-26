@@ -105,6 +105,11 @@ button { cursor: pointer; }
 .diag-table th { color: var(--muted); font-weight: 400; width: 40%; }
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; box-shadow: 0 10px 30px rgba(0,0,0,.35); z-index: 50; max-width: 80vw; }
 
+.panel-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+.debug-link { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+.debug-link input { flex: 1; min-width: 220px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; color: var(--muted); font-size: 11px; }
+.debug-link a { color: var(--accent); font-size: 12px; }
+
 @media (max-width: 720px) {
   .topbar { flex-direction: column; align-items: flex-start; }
   .batch-bar { margin-left: 0; }

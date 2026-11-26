@@ -13,6 +13,13 @@ export const API = {
   terminal: "/api/terminal",
   logs: (name: string, service: string) =>
     `/api/stacks/${encodeURIComponent(name)}/logs?service=${encodeURIComponent(service)}`,
+  systemVersion: "/api/system/version",
+  systemUpdate: "/api/system/update",
+  systemLogs: "/api/system/logs",
+  systemDiagnostics: "/api/system/diagnostics",
+  updateCheck: "/api/system/update/check",
+  updateApply: "/api/system/update/apply",
+  debugToken: "/api/system/debug-token",
 } as const;
 
 export const STACK_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;

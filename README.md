@@ -104,10 +104,34 @@ npm run dev:web
 
 ## CI / CD
 
-仓库包含两个 GitHub Actions 工作流：
+- `ci.yml`：push 与 PR 时执行依赖安装、构建、类型检查与单元测试。
+- `docker.yml`：push 到 `main` 发布 `ghcr.io/forallsouls/dockermanager:dev`；推送 `v*` 标签发布 `:latest` 及版本标签。镜像元数据包含 commit SHA 与构建时间。
 
-- `ci.yml`：在 push 与 PR 时执行依赖安装、类型检查、单元测试和全量构建。
-- `docker.yml`：推送 `v*` 标签时构建多架构镜像并发布到 GHCR（`ghcr.io/<owner>/<repo>`），使用内置的 `GITHUB_TOKEN`，无需额外配置密钥。
+## 自更新
+
+容器内守护进程定期检查当前镜像是否有新版本：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AUTO_UPDATE` | `true` | 关闭后只保留手动更新 |
+| `AUTO_UPDATE_APPLY` | `true` | 发现新版本后自动重启自身容器 |
+| `UPDATE_INTERVAL_SECONDS` | `600` | 检查间隔，最小 60 秒 |
+| `IMAGE_NAME` | 空（自动检测） | 可显式指定 `ghcr.io/forallsouls/dockermanager:dev` |
+
+更新过程只做两件事：拉取自身镜像、重启自身容器。不修改宿主机文件、不重启其他容器、不安装宿主机脚本。若未挂载 docker.sock，检查会失败并在诊断面板显示原因。
+
+手动操作入口位于诊断面板的“检查更新”与“立即更新”。
+
+## 远程调试
+
+诊断面板的“生成调试链接”会创建 HMAC 签名的短期只读 URL（默认 1 小时），持有者可访问：
+
+- `/api/system/version`：版本与镜像信息
+- `/api/system/update`：更新状态
+- `/api/system/logs?lines=200`：容器日志
+- `/api/system/diagnostics`：完整诊断包（版本、更新状态、快照、审计、日志）
+
+链接不含密码、会话 Cookie 或任何写操作权限，可安全提供用于远程排查。
 
 ## 已知限制
 

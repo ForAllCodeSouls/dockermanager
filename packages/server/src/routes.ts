@@ -5,18 +5,24 @@ import {
   API,
   type BatchRequest,
   type ComposePayload,
+  type DebugTokenResponse,
+  type DiagnosticsBundle,
   type HealthResponse,
   type LoginRequest,
   type ServerEvent,
   type SetupRequest,
   type StackAction,
+  type SystemVersion,
+  type UpdateStatus,
 } from "@dockermanager/shared";
 import {
   clearSessionCookie,
+  createDebugToken,
   createToken,
   hashPassword,
   isAuthenticated,
   setSessionCookie,
+  verifyDebugToken,
   verifyPassword,
 } from "./auth.js";
 import { config } from "./config.js";
@@ -24,6 +30,8 @@ import { composeFileFor } from "./docker.js";
 import { eventBus } from "./event-bus.js";
 import { appendAudit, needsSetup, readAudit, setPassword } from "./store.js";
 import { stacks } from "./stacks.js";
+import { applyUpdate, checkForUpdate, selfLogs, updateStatus } from "./updater.js";
+import { version } from "./version.js";
 
 const actions: StackAction[] = ["start", "stop", "restart", "update", "down", "pull"];
 
@@ -45,6 +53,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       pathname === API.setup
     ) {
       return;
+    }
+    if (
+      pathname === API.systemDiagnostics ||
+      pathname === API.systemLogs ||
+      pathname === API.systemVersion ||
+      pathname === API.systemUpdate
+    ) {
+      const token = (request.query as { t?: string } | undefined)?.t;
+      if (verifyDebugToken(token)) return;
     }
     if (!isAuthenticated(request)) {
       return fail(reply, 401, "未登录或会话已过期");
@@ -194,5 +211,54 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const limit = Math.min(Number(request.query.limit ?? 50) || 50, 200);
     const offset = Math.max(Number(request.query.offset ?? 0) || 0, 0);
     return readAudit(limit, offset);
+  });
+
+  app.get(API.systemVersion, async (): Promise<SystemVersion> => version);
+
+  app.get(API.systemUpdate, async (): Promise<UpdateStatus> => updateStatus);
+
+  app.get<{ Querystring: { lines?: string } }>(API.systemLogs, async (request) => ({
+    lines: await selfLogs(Math.min(Number(request.query.lines ?? 200) || 200, 1000)),
+  }));
+
+  app.post(API.updateCheck, async () => {
+    const before = updateStatus.updateAvailable;
+    const status = await checkForUpdate();
+    return { ...status, newlyAvailable: status.updateAvailable && !before };
+  });
+
+  app.post(API.updateApply, async () => applyUpdate());
+
+  app.post(API.debugToken, async (request): Promise<DebugTokenResponse> => {
+    const body = (request.body ?? {}) as { minutes?: number };
+    const minutes = Math.min(Number(body.minutes ?? 60) || 60, 720);
+    const token = createDebugToken(minutes);
+    const host = request.headers.host ?? `localhost:${config.port}`;
+    const forwarded = request.headers["x-forwarded-proto"] as string | undefined;
+    const protocol = (forwarded?.split(",")[0] ?? request.protocol).trim();
+    return {
+      url: `${protocol}://${host}${API.systemDiagnostics}?t=${token}`,
+      expiresAt: new Date(Date.now() + minutes * 60_000).toISOString(),
+    };
+  });
+
+  app.get(API.systemDiagnostics, async (request): Promise<DiagnosticsBundle> => {
+    const health: HealthResponse = {
+      ok: true,
+      authenticated: isAuthenticated(request),
+      needsSetup: needsSetup(),
+      seq: eventBus.currentSeq,
+      serverTime: new Date().toISOString(),
+    };
+    return {
+      generatedAt: new Date().toISOString(),
+      version,
+      update: updateStatus,
+      health,
+      snapshot: await stacks.snapshot(),
+      audit: readAudit(50, 0),
+      logs: await selfLogs(200),
+      note: "只读诊断包，不包含密码或会话 Token",
+    };
   });
 }

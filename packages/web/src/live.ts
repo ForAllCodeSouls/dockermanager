@@ -26,6 +26,9 @@ const eventTypes = [
   "stack.status",
   "audit.created",
   "system.health",
+  "update.available",
+  "update.applied",
+  "update.failed",
 ];
 
 export function useLiveConnection(enabled: boolean): LiveState {
@@ -69,6 +72,11 @@ export function useLiveConnection(enabled: boolean): LiveState {
           scheduleResync();
           if (event.type === "audit.created") {
             void queryClient.invalidateQueries({ queryKey: ["audit"] });
+          }
+          if (event.type.startsWith("update.")) {
+            window.dispatchEvent(
+              new CustomEvent("dockermanager:update", { detail: event }),
+            );
           }
         } catch {
           // malformed events are ignored; resync on reconnect still recovers

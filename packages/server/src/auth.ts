@@ -76,3 +76,30 @@ export async function verifyPassword(password: string): Promise<boolean> {
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
 }
+
+export function createDebugToken(minutes = 60): string {
+  const payload = {
+    scope: "diagnostics",
+    exp: Math.floor(Date.now() / 1000) + minutes * 60,
+  };
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  return `${body}.${sign(body)}`;
+}
+
+export function verifyDebugToken(token: string | undefined | null): boolean {
+  if (!token) return false;
+  const [body, signature] = token.split(".");
+  if (!body || !signature) return false;
+  const expected = sign(body);
+  const a = Buffer.from(signature);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return false;
+  try {
+    const payload = JSON.parse(
+      Buffer.from(body, "base64url").toString("utf8"),
+    ) as { scope: string; exp: number };
+    return payload.scope === "diagnostics" && payload.exp > Math.floor(Date.now() / 1000);
+  } catch {
+    return false;
+  }
+}

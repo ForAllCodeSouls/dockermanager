@@ -15,3 +15,7 @@ services:
       STACKS_DIR: /opt/stacks
       DATA_DIR: /app/data
       SETUP_TOKEN: ${SETUP_TOKEN:-}
+      AUTO_UPDATE: ${AUTO_UPDATE:-true}
+      AUTO_UPDATE_APPLY: ${AUTO_UPDATE_APPLY:-true}
+      UPDATE_INTERVAL_SECONDS: ${UPDATE_INTERVAL_SECONDS:-600}
+      IMAGE_NAME: ${IMAGE_NAME:-}

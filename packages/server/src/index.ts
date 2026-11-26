@@ -7,6 +7,7 @@ import fastifyStatic from "@fastify/static";
 import { config } from "./config.js";
 import { registerRoutes } from "./routes.js";
 import { setupTerminal } from "./terminal.js";
+import { startUpdater } from "./updater.js";
 
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? "info" },
@@ -25,3 +26,4 @@ if (fs.existsSync(path.join(webDist, "index.html"))) {
 
 await app.listen({ port: config.port, host: config.host });
 app.log.info(`DockerManager listening on http://${config.host}:${config.port}`);
+startUpdater();
