@@ -3,7 +3,7 @@ import type { IncomingMessage } from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
-import { isValidStackName } from "@stackdeck/shared";
+import { isValidStackName } from "@dockermanager/shared";
 import { config } from "./config.js";
 import { verifyToken } from "./auth.js";
 import { composeFileFor } from "./docker.js";

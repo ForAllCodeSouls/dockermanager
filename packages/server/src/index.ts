@@ -24,4 +24,4 @@ if (fs.existsSync(path.join(webDist, "index.html"))) {
 }
 
 await app.listen({ port: config.port, host: config.host });
-app.log.info(`Stackdeck listening on http://${config.host}:${config.port}`);
+app.log.info(`DockerManager listening on http://${config.host}:${config.port}`);

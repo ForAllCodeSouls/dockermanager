@@ -1,8 +1,8 @@
 services:
-  stackdeck:
+  dockermanager:
     build: .
-    image: stackdeck:local
-    container_name: stackdeck
+    image: dockermanager:local
+    container_name: dockermanager
     restart: unless-stopped
     ports:
       - "5001:5001"

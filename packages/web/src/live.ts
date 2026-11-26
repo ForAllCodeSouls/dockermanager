@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { API, type ServerEvent } from "@stackdeck/shared";
+import { API, type ServerEvent } from "@dockermanager/shared";
 
 export type ConnectionStatus = "connecting" | "live" | "reconnecting" | "offline";
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
-import { API, type ComposePayload, type StackInfo } from "@stackdeck/shared";
+import { API, type ComposePayload, type StackInfo } from "@dockermanager/shared";
 import { apiFetch, put } from "../api";
 import { TerminalView } from "./Terminal";
 

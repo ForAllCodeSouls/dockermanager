@@ -8,7 +8,7 @@ import {
   type Snapshot,
   type StackAction,
   type StackInfo,
-} from "@stackdeck/shared";
+} from "@dockermanager/shared";
 import { apiFetch, del, post, put } from "../api";
 import type { LiveState } from "../live";
 import { AuditPanel, DiagnosticsPanel } from "./Panels";
@@ -140,7 +140,7 @@ export function Dashboard({ live, health }: Props) {
         <div className="brand">
           <span className="brand-mark small">SD</span>
           <div>
-            <strong>Stackdeck</strong>
+            <strong>DockerManager</strong>
             <span className="muted">Compose 管理器</span>
           </div>
         </div>

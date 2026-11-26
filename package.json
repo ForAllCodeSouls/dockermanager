@@ -1,5 +1,5 @@
 {
-  "name": "stackdeck",
+  "name": "dockermanager",
   "version": "0.1.0",
   "private": true,
   "description": "A resilient Docker Compose manager with snapshot-first architecture",
@@ -8,10 +8,10 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @stackdeck/shared && npm run build -w @stackdeck/server && npm run build -w @stackdeck/web",
+    "build": "npm run build -w @dockermanager/shared && npm run build -w @dockermanager/server && npm run build -w @dockermanager/web",
     "typecheck": "tsc -p packages/web/tsconfig.json --pretty false",
-    "dev:server": "npm run dev -w @stackdeck/server",
-    "dev:web": "npm run dev -w @stackdeck/web",
+    "dev:server": "npm run dev -w @dockermanager/server",
+    "dev:web": "npm run dev -w @dockermanager/web",
     "test": "vitest run",
     "clean": "rimraf packages/*/dist"
   },

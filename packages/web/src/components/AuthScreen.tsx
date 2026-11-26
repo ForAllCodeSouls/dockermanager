@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { API } from "@stackdeck/shared";
+import { API } from "@dockermanager/shared";
 import { post } from "../api";
 
 interface Props {
@@ -32,7 +32,7 @@ export function AuthScreen({ mode }: Props) {
     <div className="auth-screen">
       <form className="auth-card" onSubmit={submit}>
         <div className="brand-mark">SD</div>
-        <h1>Stackdeck</h1>
+        <h1>DockerManager</h1>
         <p className="muted">
           {mode === "setup" ? "首次使用，请设置管理密码" : "输入管理密码以继续"}
         </p>

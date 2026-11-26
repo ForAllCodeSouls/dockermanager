@@ -1,5 +1,5 @@
 import { config } from "./config.js";
-import type { ServerEvent, ServerEventType } from "@stackdeck/shared";
+import type { ServerEvent, ServerEventType } from "@dockermanager/shared";
 
 type Listener = (event: ServerEvent) => void;
 

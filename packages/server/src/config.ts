@@ -41,7 +41,7 @@ export const config = {
   auditMaxEntries: 5000,
   terminalReplayLines: 200,
   sessionMaxAgeSeconds: 60 * 60 * 24 * 30,
-  cookieName: "stackdeck_session",
+  cookieName: "dockermanager_session",
 } as const;
 
 export type Config = typeof config;

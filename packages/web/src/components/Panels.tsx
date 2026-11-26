@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { API, type AuditPage, type HealthResponse, type Snapshot } from "@stackdeck/shared";
+import { API, type AuditPage, type HealthResponse, type Snapshot } from "@dockermanager/shared";
 import { apiFetch } from "../api";
 import type { LiveState } from "../live";
 

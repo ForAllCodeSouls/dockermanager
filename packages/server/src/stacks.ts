@@ -11,7 +11,7 @@ import {
   type StackAction,
   type StackInfo,
   type StackStatus,
-} from "@stackdeck/shared";
+} from "@dockermanager/shared";
 import { config } from "./config.js";
 import {
   composeFileFor,

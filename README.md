@@ -1,14 +1,14 @@
-# Stackdeck
+# DockerManager
 
 一个从零实现的 Docker Compose 管理器。设计目标很明确：**切走标签页再回来，不需要刷新；网络抖动时界面不崩、不弹整屏红条。**
 
-Stackdeck 不是 Dockge 的分支，也没有复用其源码。它保留“compose 文件即唯一真源”的工作方式，但重新设计了通信与状态层。
+DockerManager 不是 Dockge 的分支，也没有复用其源码。它保留“compose 文件即唯一真源”的工作方式，但重新设计了通信与状态层。
 
 ## 为什么重做
 
 同类工具常见的痛点是：把整个 UI 的可用性绑定在一条 Socket.IO 长连接上。默认 `polling` 优先的升级路径在部分 Chrome / 局域网 / 反向代理组合下会出现空 `400` 响应与 connect-disconnect 循环；浏览器切到后台后的连接节流又会放大心跳超时。结果是“回来就要刷新”，正常使用也会周期性掉线。
 
-Stackdeck 的处理方式：
+DockerManager 的处理方式：
 
 | 关注点 | 做法 |
 | --- | --- |
@@ -83,7 +83,7 @@ Traefik 用户需要关闭该路由的缓冲中间件，并将 `entryPoint` 的�
 
 ## 安全说明
 
-- Docker socket 拥有宿主机级别的权限。只把 Stackdeck 暴露给可信网络，或置于带认证的反向代理之后。
+- Docker socket 拥有宿主机级别的权限。只把 DockerManager 暴露给可信网络，或置于带认证的反向代理之后。
 - 会话使用 HMAC 签名的 HttpOnly Cookie，前端不保存长期凭证。
 - 栈名与服务名经过白名单校验，作为命令行参数传递，不经过 shell 拼接。
 - 全站 HTTPS 环境请设置 `COOKIE_SECURE=true`。

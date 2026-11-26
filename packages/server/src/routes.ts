@@ -10,7 +10,7 @@ import {
   type ServerEvent,
   type SetupRequest,
   type StackAction,
-} from "@stackdeck/shared";
+} from "@dockermanager/shared";
 import {
   clearSessionCookie,
   createToken,

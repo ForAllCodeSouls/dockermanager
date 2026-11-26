@@ -2,7 +2,7 @@ import Docker from "dockerode";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import type { ContainerInfo, EngineInfo } from "@stackdeck/shared";
+import type { ContainerInfo, EngineInfo } from "@dockermanager/shared";
 import { config } from "./config.js";
 
 const docker = new Docker();
