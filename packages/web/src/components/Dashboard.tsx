@@ -15,25 +15,17 @@ import {
 import { apiFetch, del, getCurrentHost, post, postLocal, put, setCurrentHost } from "../api";
 import type { LiveState } from "../live";
 import { AuditPanel, DiagnosticsPanel } from "./Panels";
+import { Sidebar } from "./Sidebar";
 import { StackEditor } from "./StackEditor";
+import { DetailPane } from "./DetailPane";
 import { TaskProgress } from "./TaskProgress";
 import { ConvertTool } from "./ConvertTool";
-import { StatsStrip } from "./StatsStrip";
 import { HostSwitcher } from "./HostSwitcher";
 
 interface Props {
   live: LiveState;
   health: HealthResponse | undefined;
 }
-
-const statusLabel: Record<string, string> = {
-  running: "运行中",
-  exited: "已停止",
-  partial: "部分运行",
-  created: "已创建",
-  unknown: "未知",
-  error: "异常",
-};
 
 const connectionLabel: Record<LiveState["status"], string> = {
   live: "实时连接",
@@ -51,7 +43,8 @@ export function Dashboard({ live, health }: Props) {
   });
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
-  const [active, setActive] = useState<StackInfo | null>(null);
+  const [activeName, setActiveName] = useState<string | null>(null);
+  const [selectedService, setSelectedService] = useState<string | null>(null);
   const [panel, setPanel] = useState<"none" | "audit" | "diagnostics">("none");
   const [notice, setNotice] = useState("");
   const [newName, setNewName] = useState("");
@@ -65,6 +58,23 @@ export function Dashboard({ live, health }: Props) {
     const keyword = search.trim().toLowerCase();
     return keyword ? all.filter((s) => s.name.toLowerCase().includes(keyword)) : all;
   }, [snapshot.data, search]);
+
+  const active = useMemo(
+    () => stacks.find((s) => s.name === activeName) ?? null,
+    [stacks, activeName],
+  );
+
+  // 选中栈变化时，默认选中第一个容器；容器列表变化时修正失效的服务名
+  useEffect(() => {
+    if (!active) {
+      setSelectedService(null);
+      return;
+    }
+    const names = active.services.map((c) => c.name);
+    if (!selectedService || !names.includes(selectedService)) {
+      setSelectedService(names[0] ?? null);
+    }
+  }, [active, selectedService]);
 
   function notify(message: string) {
     setNotice(message);
@@ -154,7 +164,8 @@ export function Dashboard({ live, health }: Props) {
     if (!window.confirm(`确认删除栈 ${name}？该操作会移除栈目录。`)) return;
     try {
       await del(API.stack(name));
-      setActive(null);
+      setActiveName(null);
+      setSelectedService(null);
       notify(`已删除 ${name}`);
       refresh();
     } catch (error) {
@@ -170,17 +181,17 @@ export function Dashboard({ live, health }: Props) {
   }
 
   return (
-    <div className="app-shell">
+    <div className="workbench">
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark small">DM</span>
           <div>
             <strong>DockerManager</strong>
-            <span className="muted">Compose 管理器</span>
+            <span className="muted small">Compose 管理器</span>
           </div>
         </div>
         <div className="top-actions">
-          <HostSwitcher onHostChanged={refresh} />
+          <HostSwitcher onHostChanged={() => { setActiveName(null); setSelectedService(null); refresh(); }} />
           <span
             className={`connection ${live.status}`}
             title={
@@ -191,140 +202,106 @@ export function Dashboard({ live, health }: Props) {
           >
             <span className="dot" /> {connectionLabel[live.status]}
           </span>
-          <button className="ghost" onClick={refresh} disabled={snapshot.isFetching}>刷新</button>
+          <button className="ghost" onClick={() => runAll("pull")} disabled={busy || stacks.length === 0}>
+            全部拉取
+          </button>
+          <button className="ghost" onClick={() => runAll("update")} disabled={busy || stacks.length === 0}>
+            全部更新
+          </button>
           <button className="ghost" onClick={() => setPanel(panel === "diagnostics" ? "none" : "diagnostics")}>诊断</button>
           <button className="ghost" onClick={() => setPanel(panel === "audit" ? "none" : "audit")}>审计</button>
           <button className="ghost" onClick={logout}>退出</button>
         </div>
       </header>
 
-      <main className="main">
-        {!snapshot.data?.engine.reachable && (
-          <p className="engine-note muted small">
-            Docker 引擎不可达：{snapshot.data?.engine.message ?? "正在检测…"}。当前显示已缓存的栈配置。
-          </p>
-        )}
-        <div className="toolbar">
-          <input
-            className="search"
-            placeholder="搜索栈…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <div className="batch-bar">
-            <span className="muted">已选 {selected.length}</span>
-            {(["start", "stop", "restart", "update"] as StackAction[]).map((action) => (
-              <button key={action} className="ghost" disabled={busy || selected.length === 0} onClick={() => runBatch(action)}>
-                {action === "start" ? "批量启动" : action === "stop" ? "批量停止" : action === "restart" ? "批量重启" : "批量更新"}
-              </button>
-            ))}
-          </div>
-          <button
-            className="ghost"
-            disabled={busy || stacks.length === 0}
-            onClick={() => runAll("pull")}
-          >
-            全部拉取
-          </button>
-          <button
-            className="ghost"
-            disabled={busy || stacks.length === 0}
-            onClick={() => runAll("update")}
-          >
-            全部更新
-          </button>
-          <button className="ghost" onClick={() => setShowConvert(true)}>run 转 compose</button>
-          <button className="primary" onClick={() => setShowCreate(true)}>新建栈</button>
-        </div>
+      <div className={`workbench-body ${active ? "" : "no-selection"}`}>
+        <Sidebar
+          stacks={stacks}
+          activeName={activeName}
+          selected={selected}
+          search={search}
+          busy={busy}
+          onSearch={setSearch}
+          onSelectStack={(name) => setActiveName(name)}
+          onToggleCheck={(name, checked) =>
+            setSelected((old) =>
+              checked ? [...old.filter((n) => n !== name), name] : old.filter((n) => n !== name),
+            )
+          }
+          onBatch={(action) => void runBatch(action)}
+          onNewStack={() => setShowCreate(true)}
+          onOpenPanel={(p) => setPanel(p)}
+          onConvert={() => setShowConvert(true)}
+        />
 
-        {showCreate && (
-          <div className="inline-create">
+        {active ? (
+          <StackEditor
+            stack={active}
+            selectedService={selectedService}
+            onServiceSelect={setSelectedService}
+            onStackAction={(name, action) => void runAction(name, action)}
+            onServiceAction={(service, action) => {
+              if (!activeName) return;
+              const started = API.stackServiceAction(activeName, service, action);
+              void post<TaskStarted>(started)
+                .then(setTask)
+                .catch((error: unknown) =>
+                  notify(error instanceof Error ? error.message : "服务操作启动失败"),
+                );
+            }}
+            onRemove={(name) => void removeStack(name)}
+            onChanged={refresh}
+            onNotice={notify}
+          />
+        ) : (
+          <section className="editor-pane">
+            <div className="editor-empty">
+              <div>
+                <div className="empty-logo">DM</div>
+                <h2>欢迎使用 DockerManager</h2>
+                <p>从左侧选择一个栈开始管理，或点击“+ 新建”创建 Compose 栈。</p>
+              </div>
+            </div>
+          </section>
+        )}
+
+        <DetailPane
+          stack={active}
+          selectedService={selectedService}
+          onSelectService={setSelectedService}
+        />
+      </div>
+
+      {showCreate && (
+        <div className="drawer-backdrop" onClick={() => setShowCreate(false)}>
+          <div className="auth-card" style={{ margin: "auto" }} onClick={(e) => e.stopPropagation()}>
+            <h1 style={{ fontSize: 20 }}>新建栈</h1>
+            <p className="muted small">创建一个带示例 nginx 服务的 compose.yaml。</p>
             <input
               autoFocus
               placeholder="栈名称（字母、数字、_ - .）"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
             />
-            <button className="primary" onClick={createStack} disabled={busy}>创建</button>
+            <button className="primary" onClick={() => void createStack()} disabled={busy}>创建</button>
             <button className="ghost" onClick={() => setShowCreate(false)}>取消</button>
           </div>
-        )}
-
-        {snapshot.isLoading && <p className="muted">加载快照…</p>}
-        {snapshot.error && <div className="inline-error">{String(snapshot.error)}</div>}
-
-        <div className="stack-grid">
-          {stacks.map((stack) => (
-            <article className="stack-card" key={stack.name}>
-              <label className="card-check">
-                <input
-                  type="checkbox"
-                  checked={selected.includes(stack.name)}
-                  onChange={(e) =>
-                    setSelected((old) =>
-                      e.target.checked ? [...old, stack.name] : old.filter((n) => n !== stack.name),
-                    )
-                  }
-                />
-              </label>
-              <div className="card-main" onClick={() => setActive(stack)}>
-                <div className="card-title">
-                  <strong>{stack.name}</strong>
-                  <span className={`status ${stack.status}`}>{statusLabel[stack.status] ?? stack.status}</span>
-                </div>
-                <div className="muted small">
-                  {stack.services.length} 个服务 · 更新于 {new Date(stack.composeModifiedAt).toLocaleString("zh-CN")}
-                </div>
-                <div className="service-list">
-                  {stack.services.map((c) => (
-                    <span key={c.id} className={c.state === "running" ? "chip ok" : "chip"}>
-                      {c.name}
-                    </span>
-                  ))}
-                </div>
-                <StatsStrip
-                  stackName={stack.name}
-                  serviceNames={stack.services.filter((c) => c.state === "running").map((c) => c.name)}
-                />
-              </div>
-              <div className="card-actions">
-                <button className="ghost" disabled={busy} onClick={() => runAction(stack.name, "start")}>启动</button>
-                <button className="ghost" disabled={busy} onClick={() => runAction(stack.name, "stop")}>停止</button>
-                <button className="ghost" disabled={busy} onClick={() => runAction(stack.name, "restart")}>重启</button>
-                <button className="ghost danger" onClick={() => removeStack(stack.name)}>删除</button>
-              </div>
-            </article>
-          ))}
-          {stacks.length === 0 && !snapshot.isLoading && <p className="muted empty">暂无栈。点击“新建栈”开始。</p>}
         </div>
-      </main>
+      )}
 
       {panel !== "none" && (
         <div className="side-panel">
           <button className="ghost close-panel" onClick={() => setPanel("none")}>关闭</button>
-          {panel === "audit" ? <AuditPanel /> : (
+          {panel === "audit" ? (
+            <AuditPanel />
+          ) : (
             <DiagnosticsPanel live={live} snapshot={snapshot.data} health={health} onNotice={notify} />
           )}
         </div>
       )}
 
-      {active && (
-        <StackEditor
-          stack={active}
-          onClose={() => setActive(null)}
-          onChanged={refresh}
-          onNotice={notify}
-          onTask={setTask}
-        />
-      )}
       {showConvert && <ConvertTool onClose={() => setShowConvert(false)} onNotice={notify} />}
-      {task && (
-        <TaskProgress
-          task={task}
-          onClose={() => setTask(null)}
-          onFinished={onTaskFinished}
-        />
-      )}
+      {task && <TaskProgress task={task} onClose={() => setTask(null)} onFinished={onTaskFinished} />}
       {notice && <div className="toast">{notice}</div>}
     </div>
   );

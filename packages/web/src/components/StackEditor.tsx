@@ -7,20 +7,32 @@ import {
   type ComposePayload,
   type ContainerInfo,
   type ServiceAction,
+  type StackAction,
   type StackInfo,
   type TaskStarted,
   type ValidateResponse,
 } from "@dockermanager/shared";
 import { apiFetch, getCurrentHost, post, put, scopedUrl } from "../api";
-import { TerminalView } from "./Terminal";
 
 interface Props {
   stack: StackInfo;
-  onClose: () => void;
+  selectedService: string | null;
+  onServiceSelect: (service: string) => void;
+  onStackAction: (name: string, action: StackAction) => void;
+  onServiceAction: (service: string, action: ServiceAction) => void;
+  onRemove: (name: string) => void;
   onChanged: () => void;
   onNotice: (message: string) => void;
-  onTask: (task: TaskStarted) => void;
 }
+
+const stackActions: { action: StackAction; label: string }[] = [
+  { action: "start", label: "启动" },
+  { action: "stop", label: "停止" },
+  { action: "restart", label: "重启" },
+  { action: "update", label: "更新" },
+  { action: "pull", label: "拉取" },
+  { action: "down", label: "Down" },
+];
 
 const serviceActions: { action: ServiceAction; label: string }[] = [
   { action: "start", label: "启动" },
@@ -29,22 +41,39 @@ const serviceActions: { action: ServiceAction; label: string }[] = [
   { action: "pull", label: "拉取" },
 ];
 
+const statusLabel: Record<string, string> = {
+  running: "运行中",
+  exited: "已停止",
+  partial: "部分运行",
+  created: "已创建",
+  unknown: "未知",
+  error: "异常",
+};
+
 function ServiceRows({
   services,
+  selectedService,
   onSelect,
   onAction,
 }: {
   services: ContainerInfo[];
+  selectedService: string | null;
   onSelect: (service: string) => void;
   onAction: (service: string, action: ServiceAction) => void;
 }) {
   return (
     <div className="service-rows">
       {services.map((container) => (
-        <div className="service-row" key={container.id}>
+        <div
+          className="service-row"
+          key={container.id}
+          style={selectedService === container.name ? { borderColor: "var(--accent)" } : undefined}
+        >
+          <span className={`status-dot ${container.state}`} />
           <button className="service-select" onClick={() => onSelect(container.name)}>
             {container.name}
           </button>
+          <span className="service-sub">{container.status}</span>
           <span className="service-mini-actions">
             {serviceActions.map((item) => (
               <button
@@ -62,33 +91,16 @@ function ServiceRows({
   );
 }
 
-function LogView({
+export function StackEditor({
   stack,
-  service,
-  host,
-}: {
-  stack: string;
-  service: string;
-  host: string;
-}) {
-  const [lines, setLines] = useState<string[]>([]);
-  useEffect(() => {
-    setLines([]);
-    const source = new EventSource(scopedUrl(API.logs(stack, service)));
-    source.onmessage = (event) => {
-      try {
-        const line = JSON.parse(event.data) as string;
-        setLines((old) => [...old.slice(-800), line]);
-      } catch {
-        // ignore
-      }
-    };
-    return () => source.close();
-  }, [stack, service, host]);
-  return <pre className="log-view">{lines.join("\n")}</pre>;
-}
-
-export function StackEditor({ stack, onClose, onChanged, onNotice, onTask }: Props) {
+  selectedService,
+  onServiceSelect,
+  onStackAction,
+  onServiceAction,
+  onRemove,
+  onChanged,
+  onNotice,
+}: Props) {
   const host = getCurrentHost();
   const query = useQuery({
     queryKey: ["stack", host, stack.name],
@@ -97,9 +109,7 @@ export function StackEditor({ stack, onClose, onChanged, onNotice, onTask }: Pro
   const [compose, setCompose] = useState("");
   const [env, setEnv] = useState("");
   const [dirty, setDirty] = useState(false);
-  const [tab, setTab] = useState<"compose" | "terminal" | "logs">("compose");
-  const [terminalService, setTerminalService] = useState<string | null>(null);
-  const [logService, setLogService] = useState<string | null>(null);
+  const [tab, setTab] = useState<"compose" | "services">("compose");
 
   useEffect(() => {
     if (query.data) {
@@ -132,17 +142,6 @@ export function StackEditor({ stack, onClose, onChanged, onNotice, onTask }: Pro
     }
   }
 
-  async function runService(service: string, action: ServiceAction) {
-    try {
-      const started = await post<TaskStarted>(
-        API.stackServiceAction(stack.name, service, action),
-      );
-      onTask(started);
-    } catch (error) {
-      onNotice(error instanceof Error ? error.message : "服务操作启动失败");
-    }
-  }
-
   function downloadCompose() {
     const blob = new Blob([compose], { type: "text/yaml;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -158,91 +157,94 @@ export function StackEditor({ stack, onClose, onChanged, onNotice, onTask }: Pro
   const services = stack.services;
 
   return (
-    <div className="drawer-backdrop" onClick={onClose}>
-      <aside className="drawer" onClick={(e) => e.stopPropagation()}>
-        <header className="drawer-head">
-          <div>
-            <h2>{stack.name}</h2>
-            <span className={`status ${stack.status}`}>{stack.status}</span>
-          </div>
-          <button className="ghost" onClick={onClose}>关闭</button>
-        </header>
-
-        <nav className="tabs">
-          <button className={tab === "compose" ? "active" : ""} onClick={() => setTab("compose")}>
-            配置
-          </button>
-          <button className={tab === "terminal" ? "active" : ""} onClick={() => setTab("terminal")}>
-            终端
-          </button>
-          <button className={tab === "logs" ? "active" : ""} onClick={() => setTab("logs")}>
-            日志
-          </button>
-        </nav>
-
-        <div className="drawer-body">
-          {tab === "compose" && (
-            <>
-              {query.isLoading && <p className="muted">读取配置中…</p>}
-              {query.isError && <p className="inline-error">{String(query.error)}</p>}
-              <div className="editor-label">compose.yaml</div>
-              <CodeMirror
-                value={compose}
-                theme="dark"
-                extensions={[yaml()]}
-                onChange={(value) => { setCompose(value); setDirty(true); }}
-                basicSetup={{ lineNumbers: true, foldGutter: false }}
-              />
-              <div className="editor-label">.env</div>
-              <textarea
-                className="env-input"
-                value={env}
-                onChange={(e) => { setEnv(e.target.value); setDirty(true); }}
-                spellCheck={false}
-                rows={4}
-              />
-              <div className="editor-actions">
-                <button className="ghost" onClick={() => void validate()}>校验配置</button>
-                <button className="ghost" onClick={downloadCompose} disabled={!compose}>
-                  下载 YAML
-                </button>
-                <button className="primary" onClick={() => void save()} disabled={!dirty}>
-                  {dirty ? "保存更改" : "已保存"}
-                </button>
-              </div>
-            </>
-          )}
-
-          {tab === "terminal" && (
-            <>
-              {services.length === 0 && <p className="muted">未检测到服务。</p>}
-              <ServiceRows
-                services={services}
-                onSelect={setTerminalService}
-                onAction={(service, action) => void runService(service, action)}
-              />
-              {terminalService && (
-                <TerminalView host={host} stack={stack.name} service={terminalService} />
-              )}
-            </>
-          )}
-
-          {tab === "logs" && (
-            <>
-              <ServiceRows
-                services={services}
-                onSelect={setLogService}
-                onAction={(service, action) => void runService(service, action)}
-              />
-              {logService ? (
-                <LogView host={host} stack={stack.name} service={logService} />
-              ) : (
-                <p className="muted">选择服务以查看日志。</p>
-              )}
-            </>
-          )}
+    <section className="editor-pane">
+      <header className="editor-head">
+        <div className="editor-head-top">
+          <h2 title={stack.name}>{stack.name}</h2>
+          <span className={`status-badge ${stack.status}`}>
+            {statusLabel[stack.status] ?? stack.status}
+          </span>
+          <span className="muted small">
+            {services.length} 个服务 · {new Date(stack.composeModifiedAt).toLocaleString("zh-CN")}
+          </span>
         </div>
-      </aside>
-    </div>
+        <div className="stack-actions">
+          {stackActions.map((item) => (
+            <button
+              key={item.action}
+              className="ghost"
+              onClick={() => onStackAction(stack.name, item.action)}
+            >
+              {item.label}
+            </button>
+          ))}
+          <button className="ghost danger" onClick={() => onRemove(stack.name)}>删除</button>
+        </div>
+      </header>
+
+      <nav className="editor-tabs">
+        <button className={tab === "compose" ? "active" : ""} onClick={() => setTab("compose")}>
+          compose.yaml
+        </button>
+        <button className={tab === "services" ? "active" : ""} onClick={() => setTab("services")}>
+          服务 ({services.length})
+        </button>
+      </nav>
+
+      <div className="editor-body">
+        {tab === "compose" && (
+          <>
+            {query.isLoading && <p className="muted">读取配置中…</p>}
+            {query.isError && <p className="inline-error">{String(query.error)}</p>}
+            <div className="editor-label">
+              <span>compose.yaml</span>
+              <span className="small">{dirty ? "未保存的更改" : "已保存"}</span>
+            </div>
+            <CodeMirror
+              value={compose}
+              theme="dark"
+              extensions={[yaml()]}
+              onChange={(value) => { setCompose(value); setDirty(true); }}
+              basicSetup={{ lineNumbers: true, foldGutter: false }}
+            />
+            <div className="editor-label"><span>.env</span></div>
+            <textarea
+              className="env-input"
+              value={env}
+              onChange={(e) => { setEnv(e.target.value); setDirty(true); }}
+              spellCheck={false}
+              rows={4}
+            />
+            <div className="editor-actions">
+              <button className="ghost" onClick={() => void validate()}>校验配置</button>
+              <button className="ghost" onClick={downloadCompose} disabled={!compose}>下载 YAML</button>
+              <button className="primary" onClick={() => void save()} disabled={!dirty}>
+                保存更改
+              </button>
+            </div>
+          </>
+        )}
+
+        {tab === "services" && (
+          <>
+            <p className="muted small" style={{ margin: 0 }}>
+              点击服务名可在右侧查看终端与日志；操作会实时输出到任务面板。
+            </p>
+            {services.length === 0 ? (
+              <p className="muted">该栈暂无运行中的服务。</p>
+            ) : (
+              <ServiceRows
+                services={services}
+                selectedService={selectedService}
+                onSelect={onServiceSelect}
+                onAction={(service, action) => onServiceAction(service, action)}
+              />
+            )}
+          </>
+        )}
+
+        {stack.error && <div className="inline-error">{stack.error}</div>}
+      </div>
+    </section>
   );
 }
