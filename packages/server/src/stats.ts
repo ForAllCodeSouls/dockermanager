@@ -116,6 +116,10 @@ export function currentStats(): StatsResponse {
 }
 
 export function startStatsSampler(): void {
+  if (!config.statsEnabled) {
+    cached = [];
+    return;
+  }
   const sample = async () => {
     cached = await sampleOnce();
     lastGenerated = new Date().toISOString();

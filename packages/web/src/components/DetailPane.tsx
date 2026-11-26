@@ -105,6 +105,9 @@ export function DetailPane({ stack, selectedService, onSelectService }: Props) {
   const [tab, setTab] = useState<"terminal" | "logs">("logs");
   const host = getCurrentHost();
   const services: ContainerInfo[] = stack?.services ?? [];
+  const selectedContainer = services.find(
+    (c) => (c.service || c.name) === selectedService,
+  );
 
   return (
     <aside className="detail-pane">
@@ -122,8 +125,8 @@ export function DetailPane({ stack, selectedService, onSelectService }: Props) {
           services.map((container) => (
             <div
               key={container.id}
-              className={`container-item ${selectedService === container.name ? "selected" : ""}`}
-              onClick={() => onSelectService(container.name)}
+              className={`container-item ${(container.service || container.name) === selectedService ? "selected" : ""}`}
+              onClick={() => onSelectService(container.service || container.name)}
               title={`${container.image} · ${container.ports}`}
             >
               <span className={`status-dot ${container.state}`} />

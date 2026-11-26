@@ -30,12 +30,13 @@ export async function containersForProject(name: string): Promise<ContainerInfo[
     return containers.map((item) => ({
       id: item.Id.slice(0, 12),
       name: item.Names[0]?.replace(/^\//, "") ?? item.Id.slice(0, 12),
+      service: item.Labels?.["com.docker.compose.service"] ?? "",
       image: item.Image,
       state: item.State,
       status: item.Status,
-      ports: item.Ports.map((p) =>
+      ports: [...new Set(item.Ports.map((p) =>
         p.PublicPort ? `${p.PublicPort}:${p.PrivatePort}` : `${p.PrivatePort}`,
-      ).join(", "),
+      ))].join(", "),
     }));
   } catch {
     return [];

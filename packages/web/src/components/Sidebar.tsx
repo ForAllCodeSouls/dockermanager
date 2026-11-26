@@ -103,7 +103,7 @@ export function Sidebar({
         <div className="sidebar-foot-row">
           <button className="ghost" onClick={() => onOpenPanel("diagnostics")}>诊断</button>
           <button className="ghost" onClick={() => onOpenPanel("audit")}>审计</button>
-          <button className="ghost" onClick={onConvert}>run 转 compose</button>
+          <button className="ghost" onClick={onConvert} title="把一条 docker run 启动命令，自动写成 compose 配置文件">命令转配置</button>
         </div>
       </div>
     </aside>

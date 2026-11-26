@@ -2,7 +2,10 @@ export type StackStatus = "unknown" | "created" | "running" | "exited" | "partia
 
 export interface ContainerInfo {
   id: string;
+  /** 容器名（container_name 或 Docker 自动生成的名字），仅用于显示 */
   name: string;
+  /** compose 服务名（com.docker.compose.service），用于日志/终端/单服务操作 */
+  service: string;
   image: string;
   state: string;
   status: string;

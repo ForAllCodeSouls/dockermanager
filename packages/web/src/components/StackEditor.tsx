@@ -63,14 +63,16 @@ function ServiceRows({
 }) {
   return (
     <div className="service-rows">
-      {services.map((container) => (
+      {services.map((container) => {
+        const serviceName = container.service || container.name;
+        return (
         <div
           className="service-row"
           key={container.id}
-          style={selectedService === container.name ? { borderColor: "var(--accent)" } : undefined}
+          style={selectedService === serviceName ? { borderColor: "var(--accent)" } : undefined}
         >
           <span className={`status-dot ${container.state}`} />
-          <button className="service-select" onClick={() => onSelect(container.name)}>
+          <button className="service-select" onClick={() => onSelect(serviceName)}>
             {container.name}
           </button>
           <span className="service-sub">{container.status}</span>
@@ -79,14 +81,15 @@ function ServiceRows({
               <button
                 key={item.action}
                 title={`${item.label}服务 ${container.name}`}
-                onClick={() => onAction(container.name, item.action)}
+                onClick={() => onAction(serviceName, item.action)}
               >
                 {item.label}
               </button>
             ))}
           </span>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

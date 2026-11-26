@@ -50,6 +50,10 @@ export const config = {
   ),
   imageName: process.env.IMAGE_NAME ?? "",
 
+  // 容器性能监控（CPU/内存/网络/磁盘 IO 采样）。默认关闭：采样尚未完善，
+  // 需要时设置 STATS_ENABLED=true 显式开启。
+  statsEnabled: process.env.STATS_ENABLED === "true",
+
   // 多主机：agent 模式开关与共享密钥。
   // 主实例通过 AGENTS（JSON 数组）配置远程 agent：[{id,name,url,token}]
   mode: (process.env.MODE ?? "server") as "server" | "agent",

@@ -32,23 +32,25 @@ export function ConvertTool({ onClose, onNotice }: Props) {
       <aside className="drawer" onClick={(e) => e.stopPropagation()}>
         <header className="drawer-head">
           <div>
-            <h2>docker run → compose</h2>
-            <span className="muted small">粘贴命令，自动转换为 compose.yaml</span>
+            <h2>把启动命令变成配置文件</h2>
+            <span className="muted small">
+              粘贴一条 docker run 命令，自动生成 DockerManager 可以直接创建和管理的 compose 配置
+            </span>
           </div>
           <button className="ghost" onClick={onClose}>关闭</button>
         </header>
         <div className="drawer-body">
-          <div className="editor-label">docker run 命令</div>
+          <div className="editor-label">第 1 步：粘贴你平时用来启动容器的 docker run 命令</div>
           <textarea
             className="env-input"
             rows={4}
-            placeholder="docker run -d --name web -p 8080:80 -e TZ=Asia/Shanghai nginx:alpine"
+            placeholder="例如：docker run -d --name web -p 8080:80 -e TZ=Asia/Shanghai nginx:alpine"
             value={command}
             onChange={(e) => setCommand(e.target.value)}
             spellCheck={false}
           />
           <button className="primary" onClick={convert} disabled={busy || !command.trim()}>
-            {busy ? "转换中…" : "转换"}
+            {busy ? "生成中…" : "生成配置"}
           </button>
           {result && (
             <>
@@ -61,7 +63,7 @@ export function ConvertTool({ onClose, onNotice }: Props) {
               )}
               {result.compose ? (
                 <>
-                  <div className="editor-label">compose.yaml</div>
+                  <div className="editor-label">第 2 步：下面是生成的配置，可复制去新建栈</div>
                   <CodeMirror
                     value={result.compose}
                     theme="dark"
