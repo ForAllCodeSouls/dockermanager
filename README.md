@@ -13,7 +13,7 @@ mkdir -p /opt/stacks /opt/dockermanager
 ```yaml
 services:
   dockermanager:
-    image: ghcr.io/forallsouls/dockermanager:dev
+    image: ghcr.io/forallcodesouls/dockermanager:dev
     container_name: dockermanager
     restart: unless-stopped
     ports:
@@ -30,7 +30,7 @@ services:
       AUTO_UPDATE: ${AUTO_UPDATE:-true}
       AUTO_UPDATE_APPLY: ${AUTO_UPDATE_APPLY:-true}
       UPDATE_INTERVAL_SECONDS: ${UPDATE_INTERVAL_SECONDS:-600}
-      IMAGE_NAME: ghcr.io/forallsouls/dockermanager:dev
+      IMAGE_NAME: ghcr.io/forallcodesouls/dockermanager:dev
 ```
 
 启动并访问：
@@ -45,7 +45,7 @@ cd /opt/dockermanager && docker compose up -d
 
 - **镜像**：推荐用 GHCR 镜像而不是 `build: .`，因为容器内自更新依赖镜像名。若要用本地源码构建，把 `image:` 换成 `build: .`，并按需调整 `IMAGE_NAME`。
 - **GHCR 私有包**：首次推送的镜像默认是私有，需要在仓库 Packages 页面改为 Public，否则本机拉取会失败。
-- **镜像名小写**：Docker 强制要求镜像路径全小写，因此统一使用 `ghcr.io/forallsouls/dockermanager`。CI 用 `github.repository` 生成镜像名并由 `metadata-action` 自动小写化，仓库名与账号名请保持小写，否则会出现 `repository name must be lowercase` 或匿名拉取被拒。
+- **镜像名小写**：Docker 强制要求镜像路径全小写，因此统一使用 `ghcr.io/forallcodesouls/dockermanager`。CI 用 `github.repository` 生成镜像名并由 `metadata-action` 自动小写化，仓库名与账号名请保持小写，否则会出现 `repository name must be lowercase` 或匿名拉取被拒。
 - **SETUP_TOKEN**：可选，用于保护首次设置密码。留空则任何人都能设置密码，建议仅在可信网络内使用。
 - **路径一致**：`/opt/stacks` 在容器内外保持同一路径，是为了让 compose 里的相对路径 volume 能被 Docker daemon 正确解析；不要改成别的宿主机目录后再映射到不同容器路径。
 - 栈文件实际保存在宿主机的 `/opt/stacks/<栈名>/compose.yaml`。
@@ -133,7 +133,7 @@ npm run dev:web
 ## CI / CD
 
 - `ci.yml`：push 与 PR 时执行依赖安装、构建、类型检查与单元测试。
-- `docker.yml`：push 到 `main` 发布 `ghcr.io/forallsouls/dockermanager:dev`；推送 `v*` 标签发布 `:latest` 及版本标签。镜像元数据包含 commit SHA 与构建时间。
+- `docker.yml`：push 到 `main` 发布 `ghcr.io/forallcodesouls/dockermanager:dev`；推送 `v*` 标签发布 `:latest` 及版本标签。镜像元数据包含 commit SHA 与构建时间。
 
 ## 自更新
 
@@ -144,7 +144,7 @@ npm run dev:web
 | `AUTO_UPDATE` | `true` | 关闭后只保留手动更新 |
 | `AUTO_UPDATE_APPLY` | `true` | 发现新版本后自动重启自身容器 |
 | `UPDATE_INTERVAL_SECONDS` | `600` | 检查间隔，最小 60 秒 |
-| `IMAGE_NAME` | 空（自动检测） | 可显式指定 `ghcr.io/forallsouls/dockermanager:dev` |
+| `IMAGE_NAME` | 空（自动检测） | 可显式指定 `ghcr.io/forallcodesouls/dockermanager:dev` |
 
 更新过程只做两件事：拉取自身镜像、重启自身容器。不修改宿主机文件、不重启其他容器、不安装宿主机脚本。若未挂载 docker.sock，检查会失败并在诊断面板显示原因。
 

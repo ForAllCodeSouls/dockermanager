@@ -1,7 +1,8 @@
+# 直接部署：从 GHCR 拉取预构建镜像（镜像名全小写）
+# 在 Dockge 里新建 Stack 时，可直接粘贴本文件内容
 services:
   dockermanager:
-    build: .
-    image: dockermanager:local
+    image: ghcr.io/forallcodesouls/dockermanager:dev
     container_name: dockermanager
     restart: unless-stopped
     ports:
@@ -18,4 +19,4 @@ services:
       AUTO_UPDATE: ${AUTO_UPDATE:-true}
       AUTO_UPDATE_APPLY: ${AUTO_UPDATE_APPLY:-true}
       UPDATE_INTERVAL_SECONDS: ${UPDATE_INTERVAL_SECONDS:-600}
-      IMAGE_NAME: ${IMAGE_NAME:-}
+      IMAGE_NAME: ${IMAGE_NAME:-ghcr.io/forallcodesouls/dockermanager:dev}
