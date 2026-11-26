@@ -10,7 +10,7 @@ interface Props {
   onSelectStack: (name: string) => void;
   onToggleCheck: (name: string, checked: boolean) => void;
   onBatch: (action: StackAction) => void;
-  onNewStack: () => void;
+  onNewProject: () => void;
   onOpenPanel: (panel: "audit" | "diagnostics") => void;
   onConvert: () => void;
 }
@@ -32,7 +32,7 @@ export function Sidebar({
   onSelectStack,
   onToggleCheck,
   onBatch,
-  onNewStack,
+  onNewProject,
   onOpenPanel,
   onConvert,
 }: Props) {
@@ -42,15 +42,20 @@ export function Sidebar({
         <div className="sidebar-search">
           <input
             className="search"
-            placeholder="搜索栈…"
+            placeholder="搜索项目…"
             value={search}
             onChange={(e) => onSearch(e.target.value)}
           />
         </div>
         <div className="sidebar-label">
-          <span>栈 · {stacks.length}</span>
-          <button className="ghost" style={{ padding: "3px 9px", fontSize: 12 }} onClick={onNewStack}>
-            + 新建
+          <span>项目 · {stacks.length}</span>
+          <button
+            className="ghost"
+            style={{ padding: "3px 9px", fontSize: 12 }}
+            disabled={busy}
+            onClick={onNewProject}
+          >
+            + 新建项目
           </button>
         </div>
       </div>
@@ -58,7 +63,7 @@ export function Sidebar({
       <div className="stack-list">
         {stacks.length === 0 && (
           <p className="muted small" style={{ padding: "8px 6px" }}>
-            暂无栈，点击“+ 新建”开始。
+            暂无项目，点击“+ 新建项目”开始。
           </p>
         )}
         {stacks.map((stack) => (

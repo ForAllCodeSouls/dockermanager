@@ -34,6 +34,13 @@ const connectionLabel: Record<LiveState["status"], string> = {
   offline: "网络离线",
 };
 
+const DEFAULT_COMPOSE = `services:
+  app:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+`;
+
 export function Dashboard({ live, health }: Props) {
   const queryClient = useQueryClient();
   const host = getCurrentHost();
@@ -47,8 +54,6 @@ export function Dashboard({ live, health }: Props) {
   const [selectedService, setSelectedService] = useState<string | null>(null);
   const [panel, setPanel] = useState<"none" | "audit" | "diagnostics">("none");
   const [notice, setNotice] = useState("");
-  const [newName, setNewName] = useState("");
-  const [showCreate, setShowCreate] = useState(false);
   const [showConvert, setShowConvert] = useState(false);
   const [task, setTask] = useState<TaskStarted | null>(null);
   const [busy, setBusy] = useState(false);
@@ -64,7 +69,7 @@ export function Dashboard({ live, health }: Props) {
     [stacks, activeName],
   );
 
-  // 选中栈变化时，默认选中第一个容器；容器列表变化时修正失效的服务名
+  // 选中项目变化时，默认选中第一个容器；容器列表变化时修正失效的服务名
   useEffect(() => {
     if (!active) {
       setSelectedService(null);
@@ -136,22 +141,41 @@ export function Dashboard({ live, health }: Props) {
   }
 
   function runAll(action: StackAction) {
-    // “全部”针对当前主机的所有栈，而不是搜索框过滤后的结果。
+    // “全部”针对当前主机的所有项目，而不是搜索框过滤后的结果。
     const allNames = (snapshot.data?.stacks ?? []).map((item) => item.name);
     void runBatch(action, allNames);
   }
 
-  async function createStack() {
-    if (!newName.trim()) return;
+  function nextProjectName(): string {
+    const existing = new Set((snapshot.data?.stacks ?? []).map((item) => item.name));
+    let index = 1;
+    while (existing.has(`project-${index}`)) index += 1;
+    return `project-${index}`;
+  }
+
+  async function createProject(compose: string = DEFAULT_COMPOSE) {
+    const name = nextProjectName();
     setBusy(true);
     try {
-      await put(API.stack(newName.trim()), {
-        compose: 'services:\n  app:\n    image: nginx:alpine\n    ports:\n      - "8080:80"\n',
-        env: "",
-      });
-      notify(`已创建 ${newName.trim()}，请检查并保存配置`);
-      setShowCreate(false);
-      setNewName("");
+      await put(API.stack(name), { compose, env: "" });
+      const now = new Date().toISOString();
+      const created: StackInfo = {
+        name,
+        status: "unknown",
+        services: [],
+        composeModifiedAt: now,
+        envModifiedAt: null,
+        error: null,
+      };
+      queryClient.setQueryData<Snapshot>(["snapshot", host], (old) =>
+        old
+          ? { ...old, stacks: [...old.stacks.filter((item) => item.name !== name), created] }
+          : old,
+      );
+      setSearch("");
+      setActiveName(name);
+      setSelectedService(null);
+      notify(`已创建项目 ${name}`);
       refresh();
     } catch (error) {
       notify(error instanceof Error ? error.message : "创建失败");
@@ -161,12 +185,12 @@ export function Dashboard({ live, health }: Props) {
   }
 
   async function removeStack(name: string) {
-    if (!window.confirm(`确认删除栈 ${name}？该操作会移除栈目录。`)) return;
+    if (!window.confirm(`确认删除项目 ${name}？该操作会移除项目目录。`)) return;
     try {
       await del(API.stack(name));
       setActiveName(null);
       setSelectedService(null);
-      notify(`已删除 ${name}`);
+      notify(`已删除项目 ${name}`);
       refresh();
     } catch (error) {
       notify(error instanceof Error ? error.message : "删除失败");
@@ -187,7 +211,7 @@ export function Dashboard({ live, health }: Props) {
           <span className="brand-mark small">DM</span>
           <div>
             <strong>DockerManager</strong>
-            <span className="muted small">Compose 管理器</span>
+            <span className="muted small">Docker 项目管理</span>
           </div>
         </div>
         <div className="top-actions">
@@ -229,7 +253,7 @@ export function Dashboard({ live, health }: Props) {
             )
           }
           onBatch={(action) => void runBatch(action)}
-          onNewStack={() => setShowCreate(true)}
+          onNewProject={() => void createProject()}
           onOpenPanel={(p) => setPanel(p)}
           onConvert={() => setShowConvert(true)}
         />
@@ -259,7 +283,7 @@ export function Dashboard({ live, health }: Props) {
               <div>
                 <div className="empty-logo">DM</div>
                 <h2>欢迎使用 DockerManager</h2>
-                <p>从左侧选择一个栈开始管理，或点击“+ 新建”创建 Compose 栈。</p>
+                <p>从左侧选择一个项目开始管理，或点击“+ 新建项目”直接创建一个示例项目。</p>
               </div>
             </div>
           </section>
@@ -272,23 +296,6 @@ export function Dashboard({ live, health }: Props) {
         />
       </div>
 
-      {showCreate && (
-        <div className="drawer-backdrop" onClick={() => setShowCreate(false)}>
-          <div className="auth-card" style={{ margin: "auto" }} onClick={(e) => e.stopPropagation()}>
-            <h1 style={{ fontSize: 20 }}>新建栈</h1>
-            <p className="muted small">创建一个带示例 nginx 服务的 compose.yaml。</p>
-            <input
-              autoFocus
-              placeholder="栈名称（字母、数字、_ - .）"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-            />
-            <button className="primary" onClick={() => void createStack()} disabled={busy}>创建</button>
-            <button className="ghost" onClick={() => setShowCreate(false)}>取消</button>
-          </div>
-        </div>
-      )}
-
       {panel !== "none" && (
         <div className="side-panel">
           <button className="ghost close-panel" onClick={() => setPanel("none")}>关闭</button>
@@ -300,7 +307,13 @@ export function Dashboard({ live, health }: Props) {
         </div>
       )}
 
-      {showConvert && <ConvertTool onClose={() => setShowConvert(false)} onNotice={notify} />}
+      {showConvert && (
+        <ConvertTool
+          onClose={() => setShowConvert(false)}
+          onNotice={notify}
+          onCreate={(compose) => void createProject(compose)}
+        />
+      )}
       {task && <TaskProgress task={task} onClose={() => setTask(null)} onFinished={onTaskFinished} />}
       {notice && <div className="toast">{notice}</div>}
     </div>

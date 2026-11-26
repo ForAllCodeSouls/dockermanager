@@ -1,14 +1,24 @@
 # DockerManager
 
-一个从零实现的 Docker Compose 管理器，用于管理宿主机上的 Compose 栈与容器。它不是 Dockge 的分支，也没有复用其源码，只是保留了“compose 文件即唯一真源”的工作方式。数据以 HTTP 快照为唯一真值，实时事件只作增量提示；连接状态降级为顶部的小角标，不遮罩、不禁用操作；标签页重新可见时主动对齐最新状态。
+一个从零实现的 Docker Compose 管理器，用于管理宿主机上的 Compose 项目与容器。它不是 Dockge 的分支，也没有复用其源码，只是保留了“compose 文件即唯一真源”的工作方式。数据以 HTTP 快照为唯一真值，实时事件只作增量提示；连接状态降级为顶部的小角标，不遮罩、不禁用操作；标签页重新可见时主动对齐最新状态。
 
 ## 快速开始
 
-一条命令即可用 Compose 启动。先准备目录，再把下面的 `compose.yaml` 放到任意目录（例如 `/opt/dockermanager`）：
+和 Dockge 一样，三步部署：
 
 ```bash
 mkdir -p /opt/stacks /opt/dockermanager
+cd /opt/dockermanager
+curl -fsSL https://raw.githubusercontent.com/ForAllCodeSouls/dockermanager/main/compose.yaml -o compose.yaml
+docker compose up -d
 ```
+
+浏览器打开 `http://<主机 IP>:5001`。首次进入设置管理密码（至少 8 位），之后用该密码登录。
+
+<details>
+<summary>如果拉不到 compose 文件，手动新建也可以（点击展开）</summary>
+
+在 `/opt/dockermanager/compose.yaml` 写入：
 
 ```yaml
 services:
@@ -33,22 +43,21 @@ services:
       IMAGE_NAME: ghcr.io/forallcodesouls/dockermanager:dev
 ```
 
-启动并访问：
+然后执行 `docker compose up -d`。
 
-```bash
-cd /opt/dockermanager && docker compose up -d
-```
+</details>
 
-浏览器打开 `http://<主机>:5001`。首次进入设置管理密码（至少 8 位），之后用该密码登录。
-
-几点说明：
+<details>
+<summary>部署说明（点击展开）</summary>
 
 - **镜像**：推荐用 GHCR 镜像而不是 `build: .`，因为容器内自更新依赖镜像名。若要用本地源码构建，把 `image:` 换成 `build: .`，并按需调整 `IMAGE_NAME`。
 - **GHCR 私有包**：首次推送的镜像默认是私有，需要在仓库 Packages 页面改为 Public，否则本机拉取会失败。
 - **镜像名小写**：Docker 强制要求镜像路径全小写，因此统一使用 `ghcr.io/forallcodesouls/dockermanager`。CI 用 `github.repository` 生成镜像名并由 `metadata-action` 自动小写化，仓库名与账号名请保持小写，否则会出现 `repository name must be lowercase` 或匿名拉取被拒。
 - **SETUP_TOKEN**：可选，用于保护首次设置密码。留空则任何人都能设置密码，建议仅在可信网络内使用。
 - **路径一致**：`/opt/stacks` 在容器内外保持同一路径，是为了让 compose 里的相对路径 volume 能被 Docker daemon 正确解析；不要改成别的宿主机目录后再映射到不同容器路径。
-- 栈文件实际保存在宿主机的 `/opt/stacks/<栈名>/compose.yaml`。
+- 项目配置实际保存在宿主机的 `/opt/stacks/<项目名>/compose.yaml`。
+
+</details>
 
 ## 为什么重做
 
@@ -94,7 +103,7 @@ Traefik 用户需要关闭该路由的缓冲中间件，并将 `entryPoint` 的�
 | `PORT` | `5001` | 监听端口 |
 | `HOST` | `0.0.0.0` | 监听地址 |
 | `DATA_DIR` | `/app/data` | 认证信息、会话密钥与审计日志目录 |
-| `STACKS_DIR` | `/opt/stacks` | 栈文件根目录 |
+| `STACKS_DIR` | `/opt/stacks` | 项目配置根目录 |
 | `SETUP_TOKEN` | 空 | 首次设置密码所需的令牌，留空则不校验 |
 | `COOKIE_SECURE` | `false` | 全站 HTTPS 时设为 `true` |
 | `SESSION_SECRET` | 自动生成 | 会话签名密钥，默认持久化在 `DATA_DIR/session-secret` |
@@ -106,14 +115,14 @@ Traefik 用户需要关闭该路由的缓冲中间件，并将 `entryPoint` 的�
 
 ## 功能
 
-- 栈的创建、编辑（YAML 语法校验 + `docker compose config` 校验）、下载、删除
-- 启动、停止、重启、拉取、更新、down——**实时流式输出进度**
+- 点击左侧「+ 新建项目」直接生成示例项目并打开配置，改完点「保存并启动」即可运行；也支持编辑、检查、下载、删除
+- 启动、停止、重启、拉取、更新、停止并移除——**实时流式输出进度**
 - 多选批量启动 / 停止 / 重启 / 更新，以及工具栏「全部拉取 / 全部更新」
 - **单服务操作**：启动 / 停止 / 重启 / 拉取，输出同样进入实时任务面板
 - 容器服务状态、Web 终端、实时日志（**远程主机终端也可直接透传**）
 - 容器实时统计（CPU / 内存 / 网络 / 磁盘 IO，每 3 秒采样）——**默认关闭，采样尚未完善**，需设置 `STATS_ENABLED=true` 开启
-- **命令转配置**（侧栏「命令转配置」）：粘贴一条 `docker run` 启动命令，自动生成 compose 配置，方便把已有容器纳入管理
-- **多 Docker 主机管理**（顶部主机切换器，agent 模式；栈操作、日志、任务与终端均代理）
+- **命令转配置**（侧栏「命令转配置」）：粘贴一条 `docker run` 启动命令，自动生成配置，并能一键新建项目
+- **多 Docker 主机管理**（顶部主机切换器，agent 模式；项目操作、日志、任务与终端均代理）
 - 操作审计日志（append-only JSONL）
 - 连接诊断面板（连接状态、事件计数、快照序号、Docker 引擎状态）
 - 容器自更新与只读调试链接
@@ -147,7 +156,7 @@ services:
       AGENTS: '[{"id":"nas2","name":"备份机","url":"http://192.168.1.20:5001","token":"同样的字符串"}]'
 ```
 
-重启主实例后，顶部“主机”下拉框会出现远程主机。切换后所有栈操作、日志、统计、任务进度与交互式终端都会转发到该主机。
+重启主实例后，顶部“主机”下拉框会出现远程主机。切换后所有项目操作、日志、统计、任务进度与交互式终端都会转发到该主机。
 
 终端透传链路：浏览器连接主实例的 `/api/terminal?host=<id>&...`，主实例用会话 Cookie 校验用户身份，再用 `AGENT_TOKEN` 作为 Bearer Token 与远程 agent 建立 WebSocket，双向转发终端帧。远程 agent 不再需要暴露到公网，只需要主实例能访问其 `url`。
 
@@ -161,7 +170,7 @@ services:
 
 - Docker socket 拥有宿主机级别的权限。只把 DockerManager 暴露给可信网络，或置于带认证的反向代理之后。
 - 会话使用 HMAC 签名的 HttpOnly Cookie，前端不保存长期凭证。
-- 栈名与服务名经过白名单校验，作为命令行参数传递，不经过 shell 拼接。
+- 项目名与服务名经过白名单校验，作为命令行参数传递，不经过 shell 拼接。
 - 全站 HTTPS 环境请设置 `COOKIE_SECURE=true`。
 
 ## 本地开发

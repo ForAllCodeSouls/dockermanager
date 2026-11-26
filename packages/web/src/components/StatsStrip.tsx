@@ -7,7 +7,7 @@ interface Props {
   serviceNames: string[];
 }
 
-/** 栈卡片上的轻量资源占用条：CPU% 与内存% */
+/** 项目卡片上的轻量资源占用条：CPU% 与内存% */
 export function StatsStrip({ stackName, serviceNames }: Props) {
   const stats = useQuery({
     queryKey: ["stats"],

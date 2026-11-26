@@ -113,13 +113,13 @@ export function DetailPane({ stack, selectedService, onSelectService }: Props) {
     <aside className="detail-pane">
       <header className="detail-head">
         <strong>容器</strong>
-        <span className="muted">{stack ? stack.name : "未选择栈"}</span>
+        <span className="muted">{stack ? stack.name : "未选择项目"}</span>
       </header>
 
       <div className="container-list">
         {services.length === 0 ? (
           <span className="muted small" style={{ padding: "8px 4px" }}>
-            {stack ? "该栈暂无容器" : "请从左侧选择一个栈"}
+            {stack ? "这个项目暂无容器" : "请从左侧选择一个项目"}
           </span>
         ) : (
           services.map((container) => (
@@ -148,7 +148,7 @@ export function DetailPane({ stack, selectedService, onSelectService }: Props) {
 
       <div className="detail-content">
         {!stack ? (
-          <div className="detail-empty">选择一个栈后，可在这里查看容器日志与终端。</div>
+          <div className="detail-empty">选择一个项目后，可在这里查看容器日志与终端。</div>
         ) : !selectedService ? (
           <div className="detail-empty">点击上方容器，查看日志或打开终端。</div>
         ) : tab === "logs" ? (

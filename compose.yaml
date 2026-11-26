@@ -1,5 +1,5 @@
 # 直接部署：从 GHCR 拉取预构建镜像（镜像名全小写）
-# 在 Dockge 里新建 Stack 时，可直接粘贴本文件内容
+# 在 Dockge 里新建项目时，可直接粘贴本文件内容
 services:
   dockermanager:
     image: ghcr.io/forallcodesouls/dockermanager:dev

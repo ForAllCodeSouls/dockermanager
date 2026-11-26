@@ -7,9 +7,10 @@ import { post } from "../api";
 interface Props {
   onClose: () => void;
   onNotice: (message: string) => void;
+  onCreate: (compose: string) => void;
 }
 
-export function ConvertTool({ onClose, onNotice }: Props) {
+export function ConvertTool({ onClose, onNotice, onCreate }: Props) {
   const [command, setCommand] = useState("");
   const [result, setResult] = useState<ConvertRunResponse | null>(null);
   const [busy, setBusy] = useState(false);
@@ -40,7 +41,7 @@ export function ConvertTool({ onClose, onNotice }: Props) {
           <button className="ghost" onClick={onClose}>关闭</button>
         </header>
         <div className="drawer-body">
-          <div className="editor-label">第 1 步：粘贴你平时用来启动容器的 docker run 命令</div>
+          <div className="editor-label">把启动容器的 docker run 命令粘贴到这里</div>
           <textarea
             className="env-input"
             rows={4}
@@ -63,7 +64,7 @@ export function ConvertTool({ onClose, onNotice }: Props) {
               )}
               {result.compose ? (
                 <>
-                  <div className="editor-label">第 2 步：下面是生成的配置，可复制去新建栈</div>
+                  <div className="editor-label">生成的配置如下，可以直接新建项目，也可以复制走</div>
                   <CodeMirror
                     value={result.compose}
                     theme="dark"
@@ -72,10 +73,19 @@ export function ConvertTool({ onClose, onNotice }: Props) {
                     basicSetup={{ lineNumbers: true, foldGutter: false }}
                   />
                   <button
+                    className="primary"
+                    onClick={() => {
+                      onCreate(result.compose);
+                      onClose();
+                    }}
+                  >
+                    用这份配置新建项目
+                  </button>
+                  <button
                     className="ghost"
                     onClick={() => {
                       void navigator.clipboard?.writeText(result.compose).catch(() => undefined);
-                      onNotice("已复制 compose 内容");
+                      onNotice("已复制配置内容");
                     }}
                   >
                     复制结果

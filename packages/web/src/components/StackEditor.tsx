@@ -31,7 +31,7 @@ const stackActions: { action: StackAction; label: string }[] = [
   { action: "restart", label: "重启" },
   { action: "update", label: "更新" },
   { action: "pull", label: "拉取" },
-  { action: "down", label: "Down" },
+  { action: "down", label: "停止并移除" },
 ];
 
 const serviceActions: { action: ServiceAction; label: string }[] = [
@@ -122,12 +122,13 @@ export function StackEditor({
     }
   }, [query.data]);
 
-  async function save() {
+  async function save(start = false) {
     try {
       await put(API.stack(stack.name), { compose, env });
       setDirty(false);
       onChanged();
-      onNotice(`已保存 ${stack.name}`);
+      onNotice(start ? `已保存并启动 ${stack.name}` : `已保存 ${stack.name}`);
+      if (start) onStackAction(stack.name, "start");
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "保存失败");
     }
@@ -219,10 +220,11 @@ export function StackEditor({
               rows={4}
             />
             <div className="editor-actions">
-              <button className="ghost" onClick={() => void validate()}>校验配置</button>
-              <button className="ghost" onClick={downloadCompose} disabled={!compose}>下载 YAML</button>
-              <button className="primary" onClick={() => void save()} disabled={!dirty}>
-                保存更改
+              <button className="ghost" onClick={() => void validate()}>检查配置</button>
+              <button className="ghost" onClick={downloadCompose} disabled={!compose}>下载配置文件</button>
+              <button className="ghost" onClick={() => void save()} disabled={!dirty}>只保存</button>
+              <button className="primary" onClick={() => void save(true)}>
+                保存并启动
               </button>
             </div>
           </>
@@ -234,7 +236,7 @@ export function StackEditor({
               点击服务名可在右侧查看终端与日志；操作会实时输出到任务面板。
             </p>
             {services.length === 0 ? (
-              <p className="muted">该栈暂无运行中的服务。</p>
+              <p className="muted">这个项目暂无运行中的服务。</p>
             ) : (
               <ServiceRows
                 services={services}
