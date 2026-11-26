@@ -19,8 +19,9 @@ import { Sidebar } from "./Sidebar";
 import { StackEditor } from "./StackEditor";
 import { DetailPane } from "./DetailPane";
 import { TaskProgress } from "./TaskProgress";
-import { ConvertTool } from "./ConvertTool";
+import { NewProject } from "./NewProject";
 import { HostSwitcher } from "./HostSwitcher";
+import { DEFAULT_COMPOSE } from "../defaults";
 
 interface Props {
   live: LiveState;
@@ -33,13 +34,6 @@ const connectionLabel: Record<LiveState["status"], string> = {
   reconnecting: "重连中",
   offline: "网络离线",
 };
-
-const DEFAULT_COMPOSE = `services:
-  app:
-    image: nginx:alpine
-    ports:
-      - "8080:80"
-`;
 
 export function Dashboard({ live, health }: Props) {
   const queryClient = useQueryClient();
@@ -54,7 +48,7 @@ export function Dashboard({ live, health }: Props) {
   const [selectedService, setSelectedService] = useState<string | null>(null);
   const [panel, setPanel] = useState<"none" | "audit" | "diagnostics">("none");
   const [notice, setNotice] = useState("");
-  const [showConvert, setShowConvert] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [task, setTask] = useState<TaskStarted | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -153,7 +147,10 @@ export function Dashboard({ live, health }: Props) {
     return `project-${index}`;
   }
 
-  async function createProject(compose: string = DEFAULT_COMPOSE) {
+  async function createProject(
+    compose: string = DEFAULT_COMPOSE,
+    start = false,
+  ): Promise<string | null> {
     const name = nextProjectName();
     setBusy(true);
     try {
@@ -175,10 +172,18 @@ export function Dashboard({ live, health }: Props) {
       setSearch("");
       setActiveName(name);
       setSelectedService(null);
-      notify(`已创建项目 ${name}`);
+      setCreating(false);
+      if (start) {
+        await runAction(name, "start");
+        notify(`已创建并启动项目 ${name}`);
+      } else {
+        notify(`已创建项目 ${name}`);
+      }
       refresh();
+      return name;
     } catch (error) {
       notify(error instanceof Error ? error.message : "创建失败");
+      return null;
     } finally {
       setBusy(false);
     }
@@ -253,12 +258,23 @@ export function Dashboard({ live, health }: Props) {
             )
           }
           onBatch={(action) => void runBatch(action)}
-          onNewProject={() => void createProject()}
+          onNewProject={() => {
+            setCreating(true);
+            setActiveName(null);
+            setSelectedService(null);
+            setSearch("");
+          }}
           onOpenPanel={(p) => setPanel(p)}
-          onConvert={() => setShowConvert(true)}
         />
 
-        {active ? (
+        {creating ? (
+          <NewProject
+            saving={busy}
+            onCancel={() => setCreating(false)}
+            onCreate={(compose) => void createProject(compose, true)}
+            onNotice={notify}
+          />
+        ) : active ? (
           <StackEditor
             stack={active}
             selectedService={selectedService}
@@ -283,7 +299,7 @@ export function Dashboard({ live, health }: Props) {
               <div>
                 <div className="empty-logo">DM</div>
                 <h2>欢迎使用 DockerManager</h2>
-                <p>从左侧选择一个项目开始管理，或点击“+ 新建项目”直接创建一个示例项目。</p>
+                <p>从左侧选择一个项目开始管理，或点击“+ 新建项目”粘贴 docker run 命令快速创建。</p>
               </div>
             </div>
           </section>
@@ -307,13 +323,6 @@ export function Dashboard({ live, health }: Props) {
         </div>
       )}
 
-      {showConvert && (
-        <ConvertTool
-          onClose={() => setShowConvert(false)}
-          onNotice={notify}
-          onCreate={(compose) => void createProject(compose)}
-        />
-      )}
       {task && <TaskProgress task={task} onClose={() => setTask(null)} onFinished={onTaskFinished} />}
       {notice && <div className="toast">{notice}</div>}
     </div>

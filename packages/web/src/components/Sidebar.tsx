@@ -12,7 +12,6 @@ interface Props {
   onBatch: (action: StackAction) => void;
   onNewProject: () => void;
   onOpenPanel: (panel: "audit" | "diagnostics") => void;
-  onConvert: () => void;
 }
 
 const batchActions: { action: StackAction; label: string }[] = [
@@ -34,7 +33,6 @@ export function Sidebar({
   onBatch,
   onNewProject,
   onOpenPanel,
-  onConvert,
 }: Props) {
   return (
     <aside className="sidebar">
@@ -63,7 +61,7 @@ export function Sidebar({
       <div className="stack-list">
         {stacks.length === 0 && (
           <p className="muted small" style={{ padding: "8px 6px" }}>
-            暂无项目，点击“+ 新建项目”开始。
+            暂无项目，点击“+ 新建项目”粘贴 docker run 命令创建。
           </p>
         )}
         {stacks.map((stack) => (
@@ -108,7 +106,6 @@ export function Sidebar({
         <div className="sidebar-foot-row">
           <button className="ghost" onClick={() => onOpenPanel("diagnostics")}>诊断</button>
           <button className="ghost" onClick={() => onOpenPanel("audit")}>审计</button>
-          <button className="ghost" onClick={onConvert} title="把一条 docker run 启动命令，自动写成 compose 配置文件">命令转配置</button>
         </div>
       </div>
     </aside>
