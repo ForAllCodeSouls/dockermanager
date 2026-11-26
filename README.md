@@ -1,8 +1,57 @@
 # DockerManager
 
-一个从零实现的 Docker Compose 管理器。设计目标很明确：**切走标签页再回来，不需要刷新；网络抖动时界面不崩、不弹整屏红条。**
+一个从零实现的 Docker Compose 管理器，用于管理宿主机上的 Compose 栈与容器。
 
-DockerManager 不是 Dockge 的分支，也没有复用其源码。它保留“compose 文件即唯一真源”的工作方式，但重新设计了通信与状态层。
+**设计目标：切走标签页再回来，不需要刷新；网络抖动时界面不崩、不弹整屏红条。**
+
+围绕这两点，DockerManager 做了三个关键决定：数据以 HTTP 快照为唯一真值，实时事件只作增量提示；连接状态降级为顶部的一个小角标，不遮罩、不禁用操作；标签页重新可见时主动对齐最新状态。它不是 Dockge 的分支，也没有复用其源码，只是保留了“compose 文件即唯一真源”的工作方式。
+
+## 快速开始
+
+一条命令即可用 Compose 启动。先准备目录，再把下面的 `compose.yaml` 放到任意目录（例如 `/opt/dockermanager`）：
+
+```bash
+mkdir -p /opt/stacks /opt/dockermanager
+```
+
+```yaml
+services:
+  dockermanager:
+    image: ghcr.io/forallsouls/dockermanager:dev
+    container_name: dockermanager
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/app/data
+      - /opt/stacks:/opt/stacks
+    environment:
+      TZ: Asia/Shanghai
+      STACKS_DIR: /opt/stacks
+      DATA_DIR: /app/data
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
+      AUTO_UPDATE: ${AUTO_UPDATE:-true}
+      AUTO_UPDATE_APPLY: ${AUTO_UPDATE_APPLY:-true}
+      UPDATE_INTERVAL_SECONDS: ${UPDATE_INTERVAL_SECONDS:-600}
+      IMAGE_NAME: ghcr.io/forallsouls/dockermanager:dev
+```
+
+启动并访问：
+
+```bash
+cd /opt/dockermanager && docker compose up -d
+```
+
+浏览器打开 `http://<主机>:5001`。首次进入设置管理密码（至少 8 位），之后用该密码登录。
+
+几点说明：
+
+- **镜像**：推荐用 GHCR 镜像而不是 `build: .`，因为容器内自更新依赖镜像名。若要用本地源码构建，把 `image:` 换成 `build: .`，并按需调整 `IMAGE_NAME`。
+- **GHCR 私有包**：首次推送的镜像默认是私有，需要在仓库 Packages 页面改为 Public，否则本机拉取会失败。
+- **SETUP_TOKEN**：可选，用于保护首次设置密码。留空则任何人都能设置密码，建议仅在可信网络内使用。
+- **路径一致**：`/opt/stacks` 在容器内外保持同一路径，是为了让 compose 里的相对路径 volume 能被 Docker daemon 正确解析；不要改成别的宿主机目录后再映射到不同容器路径。
+- 栈文件实际保存在宿主机的 `/opt/stacks/<栈名>/compose.yaml`。
 
 ## 为什么重做
 
@@ -14,28 +63,10 @@ DockerManager 的处理方式：
 | --- | --- |
 | 数据真值 | HTTP 快照接口 `/api/stacks`，前端用 TanStack Query 缓存 |
 | 实时更新 | SSE `/api/events`，服务端按序号回放，客户端用 `Last-Event-ID` 自动续传 |
-| 断线表现 | 仅顶部角标变为“重连中 · 显示缓存数据”，不弹全屏遮罩、不禁用操作 |
+| 断线表现 | 连接状态只显示为一个低调角标，页面上方不出现红色横幅，不弹遮罩、不禁用操作 |
 | 标签页恢复 | `visibilitychange` 主动拉取全量快照，事件回放只用于降低延迟 |
 | 双向交互 | 终端与日志流使用独立 WebSocket / SSE，和控制面互不牵连 |
 | 传输兼容 | SSE 基于普通 HTTP，天然兼容直连与 Nginx / Traefik / Caddy 反向代理，无需 upgrade 竞态处理 |
-
-## 快速开始
-
-在宿主机准备目录：
-
-```bash
-mkdir -p /opt/stacks
-```
-
-修改 `compose.yaml` 中的 `SETUP_TOKEN`（可选，用于保护首次密码设置），然后：
-
-```bash
-docker compose up -d --build
-```
-
-访问 `http://<主机>:5001`。首次进入设置管理密码（至少 8 位），之后用该密码登录。
-
-> compose 文件保存在宿主机的 `/opt/stacks/<栈名>/compose.yaml`。该路径在容器内与宿主机保持一致，是为了让 compose 中的相对路径 volume 能被 Docker daemon 正确解析。
 
 ## 反向代理
 

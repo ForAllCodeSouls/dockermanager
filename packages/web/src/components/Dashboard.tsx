@@ -148,22 +148,26 @@ export function Dashboard({ live, health }: Props) {
     await queryClient.invalidateQueries({ queryKey: ["health"] });
   }
 
-  const liveEnough = live.status === "live";
-
   return (
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark small">SD</span>
+          <span className="brand-mark small">DM</span>
           <div>
             <strong>DockerManager</strong>
             <span className="muted">Compose 管理器</span>
           </div>
         </div>
         <div className="top-actions">
-          <span className={`connection ${live.status}`}>
+          <span
+            className={`connection ${live.status}`}
+            title={
+              live.status === "live"
+                ? "实时连接正常，数据自动更新"
+                : "连接暂时不可用，当前显示已缓存数据，页面会自动恢复"
+            }
+          >
             <span className="dot" /> {connectionLabel[live.status]}
-            {!liveEnough && <em> · 显示缓存数据</em>}
           </span>
           <button className="ghost" onClick={refresh} disabled={snapshot.isFetching}>刷新</button>
           <button className="ghost" onClick={() => setPanel(panel === "diagnostics" ? "none" : "diagnostics")}>诊断</button>
@@ -172,13 +176,12 @@ export function Dashboard({ live, health }: Props) {
         </div>
       </header>
 
-      {!snapshot.data?.engine.reachable && (
-        <div className="engine-warning">
-          Docker 引擎不可达：{snapshot.data?.engine.message ?? "正在检测…"}。界面仍可读取已缓存的栈配置。
-        </div>
-      )}
-
       <main className="main">
+        {!snapshot.data?.engine.reachable && (
+          <p className="engine-note muted small">
+            Docker 引擎不可达：{snapshot.data?.engine.message ?? "正在检测…"}。当前显示已缓存的栈配置。
+          </p>
+        )}
         <div className="toolbar">
           <input
             className="search"

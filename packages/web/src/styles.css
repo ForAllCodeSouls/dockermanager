@@ -50,10 +50,9 @@ button { cursor: pointer; }
 .connection { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); padding: 6px 10px; border: 1px solid var(--border); border-radius: 999px; }
 .connection .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
 .connection.live .dot { background: var(--ok); }
-.connection.offline .dot, .connection.reconnecting .dot { background: var(--bad); }
-.connection em { font-style: normal; color: var(--bad); }
-
-.engine-warning { margin: 12px 24px 0; padding: 10px 14px; border-radius: 8px; background: #2c2415; border: 1px solid #6b5426; color: #f6d68a; }
+.connection.reconnecting .dot { background: var(--warn); }
+.connection.offline .dot { background: var(--muted); }
+.engine-note { margin: 0 0 14px; }
 .main { padding: 20px 24px 40px; }
 .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
 .toolbar .search { max-width: 260px; }
