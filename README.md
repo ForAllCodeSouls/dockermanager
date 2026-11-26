@@ -199,9 +199,10 @@ npm run dev:web
 
 ## 远程调试
 
+`/api/system/version` 是公开只读接口，便于外部监控确认当前运行的提交与镜像 ID，不暴露配置、密码或容器数据。
+
 诊断面板的“生成调试链接”会创建 HMAC 签名的短期只读 URL（默认 1 小时），持有者可访问：
 
-- `/api/system/version`：版本与镜像信息
 - `/api/system/update`：更新状态
 - `/api/system/logs?lines=200`：容器日志
 - `/api/system/diagnostics`：完整诊断包（版本、更新状态、快照、审计、日志）

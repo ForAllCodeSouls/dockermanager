@@ -63,6 +63,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!pathname?.startsWith("/api/")) return;
     if (
       pathname === API.health ||
+      pathname === API.systemVersion ||
       pathname === API.login ||
       pathname === API.setup
     ) {
@@ -71,7 +72,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (
       pathname === API.systemDiagnostics ||
       pathname === API.systemLogs ||
-      pathname === API.systemVersion ||
       pathname === API.systemUpdate
     ) {
       const token = (request.query as { t?: string } | undefined)?.t;
