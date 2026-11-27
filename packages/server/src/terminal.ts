@@ -193,7 +193,7 @@ export function setupTerminal(app: FastifyInstance): void {
       // 运行中的服务直接 exec；未运行则用 run --rm 起一个临时容器，退出后自动清理。
       const argv = running
         ? ["compose", "-f", composeFile, "-p", stack, "exec", service, "sh"]
-        : ["compose", "-f", composeFile, "-p", stack, "run", "--rm", service, "sh"];
+        : ["compose", "-f", composeFile, "-p", stack, "run", "--rm", "-T", service, "sh"];
       const child: ChildProcess = spawn("docker", argv, {
         cwd: path.dirname(composeFile),
         env: { ...process.env, TERM: "xterm-256color" },
