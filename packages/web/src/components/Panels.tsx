@@ -95,9 +95,9 @@ export function DiagnosticsPanel({ live, snapshot, health, onNotice }: Diagnosti
     ["启动时间", version.data ? new Date(version.data.startedAt).toLocaleString("zh-CN") : "—"],
     ["自动更新", update.data ? `${update.data.enabled ? "开启" : "关闭"} / ${update.data.intervalSeconds}s` : "—"],
     ["更新可用", update.data?.updateAvailable ? "是" : "否"],
-    ["上次检查", update.data?.lastCheckAt ? new Date(update.data.lastCheckAt).toLocaleString("zh-CN") : "—"],
-    ["更新错误", update.data?.lastError ?? "—"],
-    ["最后错误", live.lastError ?? "—"],
+    ["上次检查更新", update.data?.lastCheckAt ? new Date(update.data.lastCheckAt).toLocaleString("zh-CN") : "—"],
+    ["最近更新错误", update.data?.lastError || "无错误"],
+    ["最近连接错误", live.lastError || "无错误"],
   ];
 
   return (
