@@ -62,6 +62,44 @@ function isServiceRunning(composeFile: string, stack: string, service: string): 
   });
 }
 
+/** 解析服务的镜像与网络，供未运行服务的临时容器使用 */
+function resolveServiceConfig(
+  composeFile: string,
+  stack: string,
+  service: string,
+): Promise<{ image: string | null; network: string | null }> {
+  return new Promise((resolve) => {
+    const child = spawn(
+      "docker",
+      ["compose", "-f", composeFile, "-p", stack, "config", "--format", "json"],
+      { cwd: path.dirname(composeFile), stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let output = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      output += chunk.toString("utf8");
+    });
+    const fail = () => resolve({ image: null, network: null });
+    child.on("error", fail);
+    child.on("close", (code) => {
+      if (code !== 0) return fail();
+      try {
+        const config = JSON.parse(output) as {
+          services?: Record<string, { image?: string; networks?: Record<string, unknown> }>;
+          networks?: Record<string, unknown>;
+        };
+        const svc = config.services?.[service];
+        const image = svc?.image ?? null;
+        // 优先用服务显式声明的第一个网络，否则用 compose 默认网络 <stack>_default。
+        const svcNetworks = svc?.networks ? Object.keys(svc.networks) : [];
+        const network = svcNetworks[0] ?? (config.networks && Object.keys(config.networks)[0]) ?? `${stack}_default`;
+        resolve({ image, network });
+      } catch {
+        fail();
+      }
+    });
+  });
+}
+
 function wsUrlFor(agent: AgentConfig, stack: string, service: string): string {
   const base = agent.url.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
   return `${base}${API.terminal}?stack=${encodeURIComponent(stack)}&service=${encodeURIComponent(service)}`;
@@ -190,10 +228,20 @@ export function setupTerminal(app: FastifyInstance): void {
       const running = await isServiceRunning(composeFile, stack, service);
       if (ws.readyState !== ws.OPEN) return;
 
-      // 运行中的服务直接 exec；未运行则用 run --rm 起一个临时容器，退出后自动清理。
-      const argv = running
-        ? ["compose", "-f", composeFile, "-p", stack, "exec", service, "sh"]
-        : ["compose", "-f", composeFile, "-p", stack, "run", "--rm", "-T", service, "sh"];
+      // 运行中的服务直接 exec；未运行则用镜像起一个临时容器（--rm 退出后自动清理）。
+      let argv: string[];
+      if (running) {
+        argv = ["compose", "-f", composeFile, "-p", stack, "exec", service, "sh"];
+      } else {
+        const { image, network } = await resolveServiceConfig(composeFile, stack, service);
+        if (!image) {
+          send(ws, { type: "error", data: "服务未运行，且无法从配置解析镜像" });
+          ws.close();
+          return;
+        }
+        argv = ["run", "--rm", "-i", ...(network ? ["--network", network] : []), image, "sh"];
+      }
+      if (ws.readyState !== ws.OPEN) return;
       const child: ChildProcess = spawn("docker", argv, {
         cwd: path.dirname(composeFile),
         env: { ...process.env, TERM: "xterm-256color" },
