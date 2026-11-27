@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recreatableEndpoints } from "../packages/server/src/recreate.js";
+import { recreatableEndpoints, recreatableVolumes, mergedBinds } from "../packages/server/src/recreate.js";
 
 // 模拟 docker inspect 返回的 NetworkSettings.Networks：
 // 里面混着大量 Docker 运行后才写入的只读派生字段。若把这些字段原样回填到
@@ -46,5 +46,31 @@ describe("recreatableEndpoints", () => {
     expect(Object.keys(result!)).toEqual(["frontend", "backend"]);
     expect(result!.backend.Aliases).toEqual(["backend"]);
     expect("IPAddress" in result!.backend).toBe(false);
+  });
+});
+
+describe("重建挂载去重", () => {
+  const baseInfo = {
+    HostConfig: { Binds: ["/opt/dockermanager/data:/app/data", "/opt/stacks:/opt/stacks"] },
+    Mounts: [
+      { Type: "volume", Name: "dm-data", Destination: "/app/data", RW: true },
+      { Type: "volume", Name: "dm-cache", Destination: "/app/cache", RW: true },
+    ],
+    Config: { Volumes: { "/app/data": {}, "/app/cache": {}, "/app/other": {} } },
+  };
+
+  it("Binds 与 named volume 指向同一目标时只保留一个", () => {
+    const binds = mergedBinds(baseInfo as never);
+    const targets = binds.map((b) => b.split(":")[1]);
+    expect(targets).toEqual(["/app/data", "/opt/stacks", "/app/cache"]);
+  });
+
+  it("Config.Volumes 里已被 Binds/named volume 覆盖的路径被剔除", () => {
+    const volumes = recreatableVolumes(baseInfo as never);
+    expect(volumes).toEqual({ "/app/other": {} });
+  });
+
+  it("没有声明卷时返回 undefined", () => {
+    expect(recreatableVolumes({ HostConfig: {}, Mounts: [], Config: {} } as never)).toBeUndefined();
   });
 });

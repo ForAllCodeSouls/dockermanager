@@ -27,14 +27,62 @@ export function mergedEnv(
   return out;
 }
 
-/** 只保留可用于 create 的 HostConfig 白名单字段，避免派生字段导致报错。 */
-export function recreateHostConfig(info: Docker.ContainerInspectInfo): Docker.HostConfig {
+/** 从挂载声明中取容器内目标路径，用于判断某路径是否已被 Binds 覆盖。 */
+function mountDestination(mount: string): string {
+  const parts = mount.split(":");
+  // 形如 "/host:/app/data:ro" 或 "volume:/app/data"，第二段是目标路径；
+  // Windows 盘符形态 "C:\x:/app/data" 也落在第二段。
+  return parts.length >= 2 ? parts[1] : parts[0];
+}
+
+/**
+ * 合并 bind mounts 与 named volumes，并按容器内目标路径去重。
+ * 同一个目标路径若同时出现在 Binds 与 Config.Volumes，Docker create 会报
+ * "Duplicate mount point"，导致自更新预检失败。
+ */
+export function mergedBinds(info: Docker.ContainerInspectInfo): string[] {
   const hc = info.HostConfig;
+  const seen = new Set<string>();
+  const binds: string[] = [];
+  for (const entry of [...(hc.Binds ?? [])]) {
+    const destination = mountDestination(entry);
+    if (seen.has(destination)) continue;
+    seen.add(destination);
+    binds.push(entry);
+  }
   // Binds 只含 bind mounts；named volume 在 Mounts 里，必须一并带上，否则丢数据卷。
   const namedVolumes = (info.Mounts ?? [])
     .filter((m) => m.Type === "volume" && m.Name)
     .map((m) => `${m.Name}:${m.Destination}:${m.RW ? "rw" : "ro"}`);
-  const binds = [...(hc.Binds ?? []), ...namedVolumes];
+  for (const entry of namedVolumes) {
+    const destination = mountDestination(entry);
+    if (seen.has(destination)) continue;
+    seen.add(destination);
+    binds.push(entry);
+  }
+  return binds;
+}
+
+/**
+ * Config.Volumes 是镜像里声明的匿名卷。若其目标路径已被 Binds/named volume 覆盖，
+ * 必须剔除，否则 create 时同一路径出现两个挂载源，报 "Duplicate mount point"。
+ */
+export function recreatableVolumes(info: Docker.ContainerInspectInfo): Docker.ContainerCreateOptions["Volumes"] {
+  const declared = info.Config.Volumes;
+  if (!declared) return undefined;
+  const covered = new Set(mergedBinds(info).map(mountDestination));
+  const result: NonNullable<Docker.ContainerCreateOptions["Volumes"]> = {};
+  for (const destination of Object.keys(declared)) {
+    if (covered.has(destination)) continue;
+    result[destination] = declared[destination];
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+/** 只保留可用于 create 的 HostConfig 白名单字段，避免派生字段导致报错。 */
+export function recreateHostConfig(info: Docker.ContainerInspectInfo): Docker.HostConfig {
+  const hc = info.HostConfig;
+  const binds = mergedBinds(info);
   const picked: Docker.HostConfig = {
     Binds: binds.length > 0 ? binds : hc.Binds,
     PortBindings: hc.PortBindings,
@@ -124,7 +172,7 @@ export function buildCreateOptions(
     Tty: info.Config.Tty,
     OpenStdin: info.Config.OpenStdin,
     ExposedPorts: info.Config.ExposedPorts,
-    Volumes: info.Config.Volumes,
+    Volumes: recreatableVolumes(info),
     Healthcheck: info.Config.Healthcheck,
     HostConfig: recreateHostConfig(info),
     NetworkingConfig: recreatableEndpoints(info.NetworkSettings?.Networks)
