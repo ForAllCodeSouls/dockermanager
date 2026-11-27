@@ -69,6 +69,45 @@ function logLevelClass(text: string): string {
   return "";
 }
 
+/** 去掉 docker compose logs 给每行加的 "容器名 | " 前缀 */
+function stripLogPrefix(text: string): string {
+  return text.replace(/^[\w.\-]+\s+\|\s?/, "");
+}
+
+const ANSI_FG: Record<number, string> = {
+  30: "#1a1a1a", 31: "#f2636b", 32: "#5fd39a", 33: "#f5b74e",
+  34: "#7dcfff", 35: "#c792ea", 36: "#56d4dd", 37: "#d7e0ef",
+  90: "#7a8699", 91: "#ff7b7b", 92: "#7ee2a8", 93: "#ffd479",
+  94: "#8ab4ff", 95: "#d8a6ff", 96: "#7fe1ea", 97: "#ffffff",
+};
+
+/** 把 ANSI 转义序列转成内联样式的 HTML，同时做 HTML 转义，保留容器原始的彩色输出 */
+function ansiToHtml(text: string): string {
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  let html = "";
+  let style = "";
+  let last = 0;
+  const re = /\x1b\[([0-9;]*)m/g;
+  const flush = (to: number) => {
+    const chunk = text.slice(last, to);
+    if (chunk) html += style ? `<span style="${style}">${esc(chunk)}</span>` : esc(chunk);
+  };
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    flush(match.index);
+    const codes = match[1] ? match[1].split(";").map(Number) : [0];
+    for (const code of codes) {
+      if (code === 0) style = "";
+      else if (code === 1) style += "font-weight:bold;";
+      else if (ANSI_FG[code]) style = style.replace(/color:[^;]+;?/, "") + `color:${ANSI_FG[code]};`;
+    }
+    last = match.index + match[0].length;
+  }
+  flush(text.length);
+  return html;
+}
+
 function LogView({ stack, service, host }: { stack: string; service: string; host: string }) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [filter, setFilter] = useState("");
@@ -111,7 +150,7 @@ function LogView({ stack, service, host }: { stack: string; service: string; hos
   const visible = useMemo(() => {
     const keyword = filter.trim().toLowerCase();
     if (!keyword) return lines;
-    return lines.filter((line) => line.text.toLowerCase().includes(keyword));
+    return lines.filter((line) => stripLogPrefix(line.text).toLowerCase().includes(keyword));
   }, [lines, filter]);
 
   useEffect(() => {
@@ -172,12 +211,18 @@ function LogView({ stack, service, host }: { stack: string; service: string; hos
         {visible.length === 0 ? (
           <div className="log-placeholder">{filter ? "没有匹配的日志行。" : "等待日志输出…"}</div>
         ) : (
-          visible.map((line, index) => (
-            <div key={index} className={`log-line ${logLevelClass(line.text)}`}>
-              {showTime && <span className="log-time">{line.at.toLocaleTimeString("zh-CN")}</span>}
-              <span>{line.text}</span>
-            </div>
-          ))
+          visible.map((line, index) => {
+            const body = stripLogPrefix(line.text);
+            return (
+              <div key={index} className={`log-line ${logLevelClass(body)}`}>
+                {showTime && <span className="log-time">{line.at.toLocaleTimeString("zh-CN")}</span>}
+                <span
+                  className="log-body"
+                  dangerouslySetInnerHTML={{ __html: ansiToHtml(body) }}
+                />
+              </div>
+            );
+          })
         )}
       </div>
     </>

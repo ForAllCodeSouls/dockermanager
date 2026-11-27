@@ -1,8 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import type { IncomingMessage } from "node:http";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
+import * as pty from "node-pty";
 import { API, isValidStackName } from "@dockermanager/shared";
 import { config } from "./config.js";
 import { verifyToken } from "./auth.js";
@@ -228,7 +229,8 @@ export function setupTerminal(app: FastifyInstance): void {
       const running = await isServiceRunning(composeFile, stack, service);
       if (ws.readyState !== ws.OPEN) return;
 
-      // 运行中的服务直接 exec；未运行则用镜像起一个临时容器（--rm 退出后自动清理）。
+      // 运行中的服务用 compose exec；未运行则用镜像起一个临时容器（--rm 退出后自动清理）。
+      // 二者都挂到 node-pty 的伪终端上：有回显、有提示符、支持 Tab 补全与方向键。
       let argv: string[];
       if (running) {
         argv = ["compose", "-f", composeFile, "-p", stack, "exec", service, "sh"];
@@ -239,49 +241,74 @@ export function setupTerminal(app: FastifyInstance): void {
           ws.close();
           return;
         }
-        argv = ["run", "--rm", "-i", ...(network ? ["--network", network] : []), image, "sh"];
+        argv = ["run", "--rm", "-it", ...(network ? ["--network", network] : []), image, "sh"];
       }
       if (ws.readyState !== ws.OPEN) return;
-      const child: ChildProcess = spawn("docker", argv, {
-        cwd: path.dirname(composeFile),
-        env: { ...process.env, TERM: "xterm-256color" },
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+
+      let term: pty.IPty;
+      try {
+        term = pty.spawn("docker", argv, {
+          name: "xterm-256color",
+          cols: 100,
+          rows: 30,
+          cwd: path.dirname(composeFile),
+          env: { ...process.env, TERM: "xterm-256color" } as Record<string, string>,
+        });
+      } catch (error) {
+        send(ws, {
+          type: "error",
+          data: `终端启动失败：${error instanceof Error ? error.message : String(error)}`,
+        });
+        ws.close();
+        return;
+      }
 
       send(ws, {
         type: "opened",
         data: running ? "终端已连接" : "服务未运行，已开启临时容器（退出后自动清理）",
       });
-      child.stdout?.on("data", (chunk: Buffer) => {
-        send(ws, { type: "data", data: chunk.toString("utf8") });
-      });
-      child.stderr?.on("data", (chunk: Buffer) => {
-        send(ws, { type: "data", data: chunk.toString("utf8") });
-      });
-      child.on("error", (error) => send(ws, { type: "error", data: error.message }));
-      child.on("close", (code) => {
-        send(ws, { type: "closed", data: `会话结束，退出码 ${code}` });
+      term.onData((data) => send(ws, { type: "data", data }));
+      term.onExit(({ exitCode }) => {
+        send(ws, { type: "closed", data: `会话结束，退出码 ${exitCode}` });
         ws.close();
       });
 
       ws.on("message", (data) => {
         const raw = data.toString();
-        // 前端 xterm 发送 JSON 帧 {type,data}；兼容旧版纯文本帧。
         let payload = raw;
         try {
-          const frame = JSON.parse(raw) as { type?: string; data?: string };
-          // resize 帧只调整本端 xterm 显示，不向 shell 写入任何字节。
-          if (frame.type === "resize") return;
+          const frame = JSON.parse(raw) as {
+            type?: string;
+            data?: string;
+            cols?: number;
+            rows?: number;
+          };
+          if (frame.type === "resize") {
+            const cols = Math.max(20, Math.min(400, frame.cols ?? 80));
+            const rows = Math.max(5, Math.min(200, frame.rows ?? 24));
+            try {
+              term.resize(cols, rows);
+            } catch {
+              // ignore resize race
+            }
+            return;
+          }
           if (typeof frame.data === "string") payload = frame.data;
         } catch {
           // 纯文本帧，原样写入
         }
-        // 临时容器走无 TTY 管道，sh 只认 \n；xterm 的回车是 \r，需转换。
-        if (!running) payload = payload.replace(/\r/g, "\n");
-        child.stdin?.write(payload);
+        try {
+          term.write(payload);
+        } catch {
+          // 会话已结束
+        }
       });
       ws.on("close", () => {
-        child.kill();
+        try {
+          term.kill();
+        } catch {
+          // 已退出
+        }
       });
     })();
   });

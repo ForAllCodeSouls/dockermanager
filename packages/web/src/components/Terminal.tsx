@@ -56,14 +56,27 @@ export function TerminalView({ stack, service, host }: Props) {
     socket.onclose = () => term.write("\r\n[连接已关闭]\r\n");
 
     const input = term.onData((data) => {
-      if (socket.readyState === WebSocket.OPEN) socket.send(data);
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "input", data }));
+      }
     });
-    const resize = () => fit.fit();
-    window.addEventListener("resize", resize);
+
+    // 把前端实际列行同步给后端 PTY，避免提示符换行错位。
+    const syncSize = () => {
+      fit.fit();
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+      }
+    };
+    socket.addEventListener("open", syncSize);
+    const observer = new ResizeObserver(() => syncSize());
+    if (hostRef.current) observer.observe(hostRef.current);
+    window.addEventListener("resize", syncSize);
 
     return () => {
       input.dispose();
-      window.removeEventListener("resize", resize);
+      observer.disconnect();
+      window.removeEventListener("resize", syncSize);
       socket.close();
       term.dispose();
     };

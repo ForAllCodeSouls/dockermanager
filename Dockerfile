@@ -1,5 +1,7 @@
 FROM node:22-alpine AS build
 WORKDIR /app
+# node-pty 需要本地编译原生模块（提供真正的交互式终端）
+RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages ./packages
 RUN npm ci --no-audit --no-fund && npm run build
