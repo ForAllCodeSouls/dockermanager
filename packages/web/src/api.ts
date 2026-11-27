@@ -18,11 +18,13 @@ function scoped(path: string): string {
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  // 有请求体才带 JSON 头；DELETE 等无体请求若带此头，Fastify 会按空 JSON 报 400
+  const hasBody = init?.body !== undefined && init?.body !== null;
   const response = await fetch(url, {
     credentials: "same-origin",
     ...init,
     headers: {
-      "Content-Type": "application/json",
+      ...(hasBody ? { "Content-Type": "application/json" } : {}),
       ...init?.headers,
     },
   });

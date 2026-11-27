@@ -20,6 +20,7 @@ import { StackEditor } from "./StackEditor";
 import { DetailPane } from "./DetailPane";
 import { NewProject } from "./NewProject";
 import { HostSwitcher } from "./HostSwitcher";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { DEFAULT_COMPOSE } from "../defaults";
 
 interface Props {
@@ -50,6 +51,7 @@ export function Dashboard({ live, health }: Props) {
   const [creating, setCreating] = useState(false);
   const [task, setTask] = useState<TaskStarted | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const stacks = useMemo(() => {
     const all = snapshot.data?.stacks ?? [];
@@ -189,15 +191,18 @@ export function Dashboard({ live, health }: Props) {
   }
 
   async function removeStack(name: string) {
-    if (!window.confirm(`确认删除项目 ${name}？该操作会移除项目目录。`)) return;
+    setBusy(true);
     try {
       await del(API.stack(name));
       setActiveName(null);
       setSelectedService(null);
+      setPendingDelete(null);
       notify(`已删除项目 ${name}`);
       refresh();
     } catch (error) {
       notify(error instanceof Error ? error.message : "删除失败");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -288,7 +293,7 @@ export function Dashboard({ live, health }: Props) {
                   notify(error instanceof Error ? error.message : "服务操作启动失败"),
                 );
             }}
-            onRemove={(name) => void removeStack(name)}
+            onRemove={(name) => setPendingDelete(name)}
             onChanged={refresh}
             onNotice={notify}
           />
@@ -323,6 +328,18 @@ export function Dashboard({ live, health }: Props) {
             <DiagnosticsPanel live={live} snapshot={snapshot.data} health={health} onNotice={notify} />
           )}
         </div>
+      )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title="删除项目"
+          message={`确定删除「${pendingDelete}」吗？项目目录和其中的配置文件会被移除，此操作不可撤销。`}
+          confirmLabel="删除"
+          danger
+          busy={busy}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => void removeStack(pendingDelete)}
+        />
       )}
 
       {notice && <div className="toast">{notice}</div>}

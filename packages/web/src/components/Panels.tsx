@@ -11,6 +11,7 @@ import {
 } from "@dockermanager/shared";
 import { apiFetch, post } from "../api";
 import type { LiveState } from "../live";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 export function AuditPanel() {
   const audit = useQuery({
@@ -55,6 +56,7 @@ export function DiagnosticsPanel({ live, snapshot, health, onNotice }: Diagnosti
     queryFn: () => apiFetch<UpdateStatus>(API.systemUpdate),
   });
   const [debugUrl, setDebugUrl] = useState("");
+  const [confirmApply, setConfirmApply] = useState(false);
 
   const check = useMutation({
     mutationFn: () => post<UpdateStatus>(API.updateCheck),
@@ -66,7 +68,10 @@ export function DiagnosticsPanel({ live, snapshot, health, onNotice }: Diagnosti
   });
   const apply = useMutation({
     mutationFn: () => post<{ ok: boolean; message: string }>(API.updateApply),
-    onSuccess: (data) => onNotice(data.message),
+    onSuccess: (data) => {
+      setConfirmApply(false);
+      onNotice(data.message);
+    },
     onError: (error) => onNotice(error instanceof Error ? error.message : "更新失败"),
   });
   const debug = useMutation({
@@ -121,11 +126,7 @@ export function DiagnosticsPanel({ live, snapshot, health, onNotice }: Diagnosti
         <button
           className="ghost"
           disabled={apply.isPending}
-          onClick={() => {
-            if (window.confirm("确认立即更新？容器会重启自身，页面将自动恢复连接。")) {
-              apply.mutate();
-            }
-          }}
+          onClick={() => setConfirmApply(true)}
         >
           立即更新
         </button>
@@ -148,6 +149,16 @@ export function DiagnosticsPanel({ live, snapshot, health, onNotice }: Diagnosti
         </div>
       )}
       <p className="hint">调试链接为 HMAC 签名的短期只读凭证，不包含密码或会话 Token。</p>
+      {confirmApply && (
+        <ConfirmDialog
+          title="立即更新"
+          message="确认立即更新？容器会重建自身，期间页面连接会短暂中断并自动恢复。"
+          confirmLabel="开始更新"
+          busy={apply.isPending}
+          onCancel={() => setConfirmApply(false)}
+          onConfirm={() => apply.mutate()}
+        />
+      )}
     </div>
   );
 }
