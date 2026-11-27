@@ -276,6 +276,8 @@ export function setupTerminal(app: FastifyInstance): void {
         } catch {
           // 纯文本帧，原样写入
         }
+        // 临时容器走无 TTY 管道，sh 只认 \n；xterm 的回车是 \r，需转换。
+        if (!running) payload = payload.replace(/\r/g, "\n");
         child.stdin?.write(payload);
       });
       ws.on("close", () => {
