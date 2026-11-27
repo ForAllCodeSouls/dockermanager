@@ -24,11 +24,56 @@ interface LogLine {
   at: Date;
 }
 
+/** docker compose 输出着色：[] 蓝色、✓ 绿色、状态词分色、行尾耗时蓝色靠右 */
+function colorizeTaskLine(text: string, isError: boolean): { body: string; time: string } {
+  let main = text;
+  let time = "";
+  const timed = main.match(/\s+([\d.]+(?:ms|s|m|h))\s*$/);
+  if (timed && timed.index !== undefined) {
+    time = timed[1];
+    main = main.slice(0, timed.index);
+  }
+  const escapeHtml = (value: string) =>
+    value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const pattern =
+    /(\[[+-]\]|✔|✓|✘|\b(?:Pulling|Pulled|Running|Recreated|Created|Started|Stopped|Removed|Downloading|Downloaded|Waiting|Building|Built|Error|Failed|error|failed)\b|\d+\/\d+)/g;
+  let body = "";
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(main)) !== null) {
+    body += escapeHtml(main.slice(last, match.index));
+    const token = match[0];
+    let cls = "";
+    if (token === "[+]" || token === "[-]") cls = "tok-info";
+    else if (token === "✔" || token === "✓") cls = "tok-ok";
+    else if (token === "✘") cls = "tok-err";
+    else if (/^(Pulled|Recreated|Created|Started|Stopped|Removed|Downloaded|Built)$/.test(token)) cls = "tok-ok";
+    else if (/^(Pulling|Running|Downloading|Waiting|Building)$/.test(token)) cls = "tok-info";
+    else if (/^(Error|Failed|error|failed)$/.test(token)) cls = "tok-err";
+    else if (/^\d+\/\d+$/.test(token)) cls = "tok-info";
+    body += cls ? `<span class="${cls}">${escapeHtml(token)}</span>` : escapeHtml(token);
+    last = match.index + token.length;
+  }
+  body += escapeHtml(main.slice(last));
+  if (isError && !body.includes("tok-err")) {
+    body = `<span class="tok-err">${body}</span>`;
+  }
+  return { body, time };
+}
+
+/** 日志按级别着色：错误红、警告黄、信息蓝 */
+function logLevelClass(text: string): string {
+  if (/\b(ERROR|FATAL|CRITICAL|Exception|Traceback|panic|错误|失败)\b/i.test(text)) return "log-error";
+  if (/\b(WARN|WARNING|warn|warning|警告)\b/i.test(text)) return "log-warn";
+  if (/\b(INFO|DEBUG|info|debug)\b/i.test(text)) return "log-info";
+  return "";
+}
+
 function LogView({ stack, service, host }: { stack: string; service: string; host: string }) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [filter, setFilter] = useState("");
   const [showTime, setShowTime] = useState(false);
-  const bodyRef = useRef<HTMLPreElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
   const lastTextRef = useRef("");
   const reconnectedRef = useRef(false);
@@ -68,10 +113,6 @@ function LogView({ stack, service, host }: { stack: string; service: string; hos
     if (!keyword) return lines;
     return lines.filter((line) => line.text.toLowerCase().includes(keyword));
   }, [lines, filter]);
-
-  const logText = visible
-    .map((line) => (showTime ? `${line.at.toLocaleTimeString("zh-CN")} ${line.text}` : line.text))
-    .join("\n");
 
   useEffect(() => {
     const el = bodyRef.current;
@@ -120,7 +161,7 @@ function LogView({ stack, service, host }: { stack: string; service: string; hos
           清空
         </button>
       </div>
-      <pre
+      <div
         className="log-view"
         ref={bodyRef}
         onScroll={(e) => {
@@ -128,10 +169,17 @@ function LogView({ stack, service, host }: { stack: string; service: string; hos
           followRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
         }}
       >
-        {visible.length === 0
-          ? filter ? "没有匹配的日志行。" : "等待日志输出…"
-          : logText}
-      </pre>
+        {visible.length === 0 ? (
+          <div className="log-placeholder">{filter ? "没有匹配的日志行。" : "等待日志输出…"}</div>
+        ) : (
+          visible.map((line, index) => (
+            <div key={index} className={`log-line ${logLevelClass(line.text)}`}>
+              {showTime && <span className="log-time">{line.at.toLocaleTimeString("zh-CN")}</span>}
+              <span>{line.text}</span>
+            </div>
+          ))
+        )}
+      </div>
     </>
   );
 }
@@ -202,11 +250,18 @@ function TaskView({
         {lines.length === 0 ? (
           <p className="muted">正在连接任务输出…</p>
         ) : (
-          lines.map((line, index) => (
-            <div key={index} className={line.stream === "stderr" ? "task-line err" : "task-line"}>
-              {line.text}
-            </div>
-          ))
+          lines.map((line, index) => {
+            const colored = colorizeTaskLine(line.text, line.stream === "stderr");
+            return (
+              <div
+                key={index}
+                className={`task-line ${line.stream === "stderr" ? "err" : ""}`}
+              >
+                <span className="task-line-body" dangerouslySetInnerHTML={{ __html: colored.body }} />
+                {colored.time && <span className="task-line-time">{colored.time}</span>}
+              </div>
+            );
+          })
         )}
       </div>
     </>

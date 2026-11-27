@@ -1,7 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
+import { EditorView } from "@codemirror/view";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { tags } from "@lezer/highlight";
+import {
+  Box,
+  ChevronDown,
+  CloudDownload,
+  Download,
+  Pencil,
+  Play,
+  RotateCw,
+  Square,
+  Trash2,
+} from "lucide-react";
 import {
   API,
   type ComposePayload,
@@ -42,13 +56,39 @@ const serviceActions: { action: ServiceAction; label: string }[] = [
 ];
 
 const statusLabel: Record<string, string> = {
-  running: "运行中",
+  running: "已启动",
   exited: "已停止",
-  partial: "部分运行",
+  partial: "部分启动",
   created: "已创建",
   unknown: "未知",
   error: "异常",
 };
+
+/** YAML 语法高亮：键名蓝、字符串绿、数字橙、注释灰 */
+const yamlHighlight = HighlightStyle.define([
+  { tag: tags.propertyName, color: "#7dcfff" },
+  { tag: tags.string, color: "#9ece6a" },
+  { tag: tags.number, color: "#ff9e64" },
+  { tag: tags.bool, color: "#ff9e64" },
+  { tag: tags.null, color: "#ff9e64" },
+  { tag: tags.keyword, color: "#bb9af7" },
+  { tag: tags.comment, color: "#6b7690", fontStyle: "italic" },
+]);
+
+const yamlTheme = EditorView.theme(
+  {
+    "&": { fontSize: "13px", backgroundColor: "var(--terminal-bg)" },
+    ".cm-content": { padding: "10px 0", caretColor: "#7dcfff" },
+    ".cm-gutters": {
+      backgroundColor: "var(--terminal-bg)",
+      borderRight: "1px solid var(--border-soft)",
+      color: "#5b6580",
+    },
+    ".cm-activeLine": { backgroundColor: "rgba(125,207,255,.05)" },
+    ".cm-activeLineGutter": { backgroundColor: "rgba(125,207,255,.08)" },
+  },
+  { dark: true },
+);
 
 function ServiceRows({
   services,
@@ -113,6 +153,19 @@ export function StackEditor({
   const [env, setEnv] = useState("");
   const [dirty, setDirty] = useState(false);
   const [tab, setTab] = useState<"compose" | "services">("compose");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDocClick = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [menuOpen]);
 
   useEffect(() => {
     if (query.data) {
@@ -164,25 +217,63 @@ export function StackEditor({
     <section className="editor-pane">
       <header className="editor-head">
         <div className="editor-head-top">
-          <h2 title={stack.name}>{stack.name}</h2>
           <span className={`status-badge ${stack.status}`}>
             {statusLabel[stack.status] ?? stack.status}
           </span>
-          <span className="muted small">
-            {services.length} 个服务 · {new Date(stack.composeModifiedAt).toLocaleString("zh-CN")}
+          <h2 title={stack.name}>{stack.name}</h2>
+          <span className="head-meta muted small">
+            {services.length} 个服务 · 更新于 {new Date(stack.composeModifiedAt).toLocaleString("zh-CN")}
           </span>
         </div>
         <div className="stack-actions">
-          {stackActions.map((item) => (
+          <div className="action-group">
             <button
-              key={item.action}
-              className="ghost"
-              onClick={() => onStackAction(stack.name, item.action)}
+              className={`action-btn ${tab === "compose" ? "active" : ""}`}
+              title="编辑配置"
+              onClick={() => setTab("compose")}
             >
-              {item.label}
+              <Pencil size={14} /> 编辑
             </button>
-          ))}
-          <button className="ghost danger" onClick={() => onRemove(stack.name)}>删除</button>
+            <button className="action-btn" title="重启项目" onClick={() => onStackAction(stack.name, "restart")}>
+              <RotateCw size={14} /> 重启
+            </button>
+            <button className="action-btn" title="拉取并更新" onClick={() => onStackAction(stack.name, "update")}>
+              <CloudDownload size={14} /> 更新
+            </button>
+            <button className="action-btn" title="停止项目" onClick={() => onStackAction(stack.name, "stop")}>
+              <Square size={13} fill="currentColor" /> 停止
+            </button>
+            <div className="action-more" ref={menuRef}>
+              <button
+                className="action-btn action-chevron"
+                title="更多操作"
+                onClick={() => setMenuOpen((v) => !v)}
+              >
+                <ChevronDown size={15} />
+              </button>
+              {menuOpen && (
+                <div className="action-menu">
+                  {stackActions
+                    .filter((item) => ["start", "pull", "down"].includes(item.action))
+                    .map((item) => (
+                      <button
+                        key={item.action}
+                        onClick={() => {
+                          onStackAction(stack.name, item.action);
+                          setMenuOpen(false);
+                        }}
+                      >
+                        {item.action === "start" ? <Play size={13} /> : item.action === "pull" ? <Download size={13} /> : <Box size={13} />}
+                        {item.label}
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <button className="delete-btn" title="删除项目" onClick={() => onRemove(stack.name)}>
+            <Trash2 size={14} /> 删除
+          </button>
         </div>
       </header>
 
@@ -206,8 +297,8 @@ export function StackEditor({
             </div>
             <CodeMirror
               value={compose}
-              theme="dark"
-              extensions={[yaml()]}
+              theme={yamlTheme}
+              extensions={[yaml(), syntaxHighlighting(yamlHighlight)]}
               onChange={(value) => { setCompose(value); setDirty(true); }}
               basicSetup={{ lineNumbers: true, foldGutter: false }}
             />
