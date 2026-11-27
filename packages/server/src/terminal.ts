@@ -45,6 +45,23 @@ function send(ws: WebSocket, message: TerminalMessage): void {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
 }
 
+/** 检测 compose 服务是否有正在运行的容器 */
+function isServiceRunning(composeFile: string, stack: string, service: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = spawn(
+      "docker",
+      ["compose", "-f", composeFile, "-p", stack, "ps", "-q", service],
+      { cwd: path.dirname(composeFile), stdio: ["ignore", "pipe", "ignore"] },
+    );
+    let output = "";
+    probe.stdout?.on("data", (chunk: Buffer) => {
+      output += chunk.toString("utf8");
+    });
+    probe.on("error", () => resolve(false));
+    probe.on("close", (code) => resolve(code === 0 && output.trim().length > 0));
+  });
+}
+
 function wsUrlFor(agent: AgentConfig, stack: string, service: string): string {
   const base = agent.url.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
   return `${base}${API.terminal}?stack=${encodeURIComponent(stack)}&service=${encodeURIComponent(service)}`;
@@ -168,45 +185,54 @@ export function setupTerminal(app: FastifyInstance): void {
       return;
     }
 
-    const child: ChildProcess = spawn(
-      "docker",
-      ["compose", "-f", composeFile, "-p", stack, "exec", service, "sh"],
-      {
+    void (async () => {
+      if (ws.readyState !== ws.OPEN) return;
+      const running = await isServiceRunning(composeFile, stack, service);
+      if (ws.readyState !== ws.OPEN) return;
+
+      // 运行中的服务直接 exec；未运行则用 run --rm 起一个临时容器，退出后自动清理。
+      const argv = running
+        ? ["compose", "-f", composeFile, "-p", stack, "exec", service, "sh"]
+        : ["compose", "-f", composeFile, "-p", stack, "run", "--rm", service, "sh"];
+      const child: ChildProcess = spawn("docker", argv, {
         cwd: path.dirname(composeFile),
         env: { ...process.env, TERM: "xterm-256color" },
         stdio: ["pipe", "pipe", "pipe"],
-      },
-    );
+      });
 
-    send(ws, { type: "opened", data: "终端已连接" });
-    child.stdout?.on("data", (chunk: Buffer) => {
-      send(ws, { type: "data", data: chunk.toString("utf8") });
-    });
-    child.stderr?.on("data", (chunk: Buffer) => {
-      send(ws, { type: "data", data: chunk.toString("utf8") });
-    });
-    child.on("error", (error) => send(ws, { type: "error", data: error.message }));
-    child.on("close", (code) => {
-      send(ws, { type: "closed", data: `会话结束，退出码 ${code}` });
-      ws.close();
-    });
+      send(ws, {
+        type: "opened",
+        data: running ? "终端已连接" : "服务未运行，已开启临时容器（退出后自动清理）",
+      });
+      child.stdout?.on("data", (chunk: Buffer) => {
+        send(ws, { type: "data", data: chunk.toString("utf8") });
+      });
+      child.stderr?.on("data", (chunk: Buffer) => {
+        send(ws, { type: "data", data: chunk.toString("utf8") });
+      });
+      child.on("error", (error) => send(ws, { type: "error", data: error.message }));
+      child.on("close", (code) => {
+        send(ws, { type: "closed", data: `会话结束，退出码 ${code}` });
+        ws.close();
+      });
 
-    ws.on("message", (data) => {
-      const raw = data.toString();
-      // 前端 xterm 发送 JSON 帧 {type,data}；兼容旧版纯文本帧。
-      let payload = raw;
-      try {
-        const frame = JSON.parse(raw) as { type?: string; data?: string };
-        // resize 帧只调整本端 xterm 显示，不向 shell 写入任何字节。
-        if (frame.type === "resize") return;
-        if (typeof frame.data === "string") payload = frame.data;
-      } catch {
-        // 纯文本帧，原样写入
-      }
-      child.stdin?.write(payload);
-    });
-    ws.on("close", () => {
-      child.kill();
-    });
+      ws.on("message", (data) => {
+        const raw = data.toString();
+        // 前端 xterm 发送 JSON 帧 {type,data}；兼容旧版纯文本帧。
+        let payload = raw;
+        try {
+          const frame = JSON.parse(raw) as { type?: string; data?: string };
+          // resize 帧只调整本端 xterm 显示，不向 shell 写入任何字节。
+          if (frame.type === "resize") return;
+          if (typeof frame.data === "string") payload = frame.data;
+        } catch {
+          // 纯文本帧，原样写入
+        }
+        child.stdin?.write(payload);
+      });
+      ws.on("close", () => {
+        child.kill();
+      });
+    })();
   });
 }
