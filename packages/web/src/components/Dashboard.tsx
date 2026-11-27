@@ -18,7 +18,6 @@ import { AuditPanel, DiagnosticsPanel } from "./Panels";
 import { Sidebar } from "./Sidebar";
 import { StackEditor } from "./StackEditor";
 import { DetailPane } from "./DetailPane";
-import { TaskProgress } from "./TaskProgress";
 import { NewProject } from "./NewProject";
 import { HostSwitcher } from "./HostSwitcher";
 import { DEFAULT_COMPOSE } from "../defaults";
@@ -308,7 +307,10 @@ export function Dashboard({ live, health }: Props) {
         <DetailPane
           stack={active}
           selectedService={selectedService}
+          task={task}
           onSelectService={setSelectedService}
+          onTaskFinished={onTaskFinished}
+          onTaskClear={() => setTask(null)}
         />
       </div>
 
@@ -323,7 +325,6 @@ export function Dashboard({ live, health }: Props) {
         </div>
       )}
 
-      {task && <TaskProgress task={task} onClose={() => setTask(null)} onFinished={onTaskFinished} />}
       {notice && <div className="toast">{notice}</div>}
     </div>
   );

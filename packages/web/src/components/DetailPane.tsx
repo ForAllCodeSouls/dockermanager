@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ContainerInfo, StackInfo } from "@dockermanager/shared";
+import {
+  API,
+  type ContainerInfo,
+  type StackInfo,
+  type TaskFinished,
+  type TaskLine,
+  type TaskStarted,
+} from "@dockermanager/shared";
 import { getCurrentHost, scopedUrl } from "../api";
-import { API } from "@dockermanager/shared";
 import { TerminalView } from "./Terminal";
 
 interface Props {
   stack: StackInfo | null;
   selectedService: string | null;
+  task: TaskStarted | null;
   onSelectService: (service: string) => void;
+  onTaskFinished: (result: TaskFinished) => void;
+  onTaskClear: () => void;
 }
 
 interface LogLine {
@@ -21,15 +30,32 @@ function LogView({ stack, service, host }: { stack: string; service: string; hos
   const [showTime, setShowTime] = useState(false);
   const bodyRef = useRef<HTMLPreElement>(null);
   const followRef = useRef(true);
+  const lastTextRef = useRef("");
+  const reconnectedRef = useRef(false);
 
   useEffect(() => {
     setLines([]);
+    lastTextRef.current = "";
+    reconnectedRef.current = false;
     followRef.current = true;
     const source = new EventSource(scopedUrl(API.logs(stack, service)));
+    source.onopen = () => {
+      // 重连后服务端会重新发送 --tail 历史，清空一次避免重复刷屏
+      if (reconnectedRef.current) {
+        setLines([]);
+        lastTextRef.current = "";
+        reconnectedRef.current = false;
+      }
+    };
+    source.onerror = () => {
+      reconnectedRef.current = true;
+    };
     source.onmessage = (event) => {
       try {
-        const line = JSON.parse(event.data) as string;
-        setLines((old) => [...old.slice(-1200), { text: line, at: new Date() }]);
+        const text = JSON.parse(event.data) as string;
+        if (!text || text === lastTextRef.current) return;
+        lastTextRef.current = text;
+        setLines((old) => [...old.slice(-1200), { text, at: new Date() }]);
       } catch {
         // ignore malformed frames
       }
@@ -83,7 +109,16 @@ function LogView({ stack, service, host }: { stack: string; service: string; hos
           时间
         </button>
         <button className="ghost" title="下载日志" onClick={download}>下载</button>
-        <button className="ghost" title="清空当前显示" onClick={() => setLines([])}>清空</button>
+        <button
+          className="ghost"
+          title="清空当前显示"
+          onClick={() => {
+            setLines([]);
+            lastTextRef.current = "";
+          }}
+        >
+          清空
+        </button>
       </div>
       <pre
         className="log-view"
@@ -101,13 +136,99 @@ function LogView({ stack, service, host }: { stack: string; service: string; hos
   );
 }
 
-export function DetailPane({ stack, selectedService, onSelectService }: Props) {
-  const [tab, setTab] = useState<"terminal" | "logs">("logs");
+function TaskView({
+  task,
+  onFinished,
+  onClear,
+}: {
+  task: TaskStarted;
+  onFinished: (result: TaskFinished) => void;
+  onClear: () => void;
+}) {
+  const [lines, setLines] = useState<TaskLine[]>([]);
+  const [done, setDone] = useState<TaskFinished | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const actionLabel = task.action.startsWith("service:")
+    ? `服务 ${task.action.slice("service:".length)}`
+    : task.action;
+
+  useEffect(() => {
+    setLines([]);
+    setDone(null);
+    const source = new EventSource(scopedUrl(API.taskStream(task.id)));
+    source.onmessage = (event) => {
+      try {
+        const line = JSON.parse(event.data) as TaskLine;
+        setLines((old) => {
+          if (line.replace) {
+            if (old.length === 0) return [line];
+            const next = [...old];
+            next[next.length - 1] = line;
+            return next;
+          }
+          return [...old.slice(-2000), line];
+        });
+      } catch {
+        // ignore malformed frames
+      }
+    };
+    source.addEventListener("done", (event) => {
+      try {
+        const result = JSON.parse((event as MessageEvent).data) as TaskFinished;
+        setDone(result);
+        onFinished(result);
+      } catch {
+        // ignore
+      }
+      source.close();
+    });
+    return () => source.close();
+  }, [task.id, onFinished]);
+
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [lines]);
+
+  return (
+    <>
+      <div className="task-toolbar">
+        <span className="muted small" title={`${actionLabel} · ${task.stack}`}>
+          {done ? (done.ok ? "完成" : `失败（退出码 ${done.exitCode}）`) : "执行中"} · {actionLabel} · {task.stack}
+        </span>
+        {done && <button className="ghost" onClick={onClear}>清空</button>}
+      </div>
+      <div className="task-inline" ref={bodyRef}>
+        {lines.length === 0 ? (
+          <p className="muted">正在连接任务输出…</p>
+        ) : (
+          lines.map((line, index) => (
+            <div key={index} className={line.stream === "stderr" ? "task-line err" : "task-line"}>
+              {line.text}
+            </div>
+          ))
+        )}
+      </div>
+    </>
+  );
+}
+
+export function DetailPane({
+  stack,
+  selectedService,
+  task,
+  onSelectService,
+  onTaskFinished,
+  onTaskClear,
+}: Props) {
+  const [tab, setTab] = useState<"logs" | "terminal" | "task">("logs");
   const host = getCurrentHost();
   const services: ContainerInfo[] = stack?.services ?? [];
-  const selectedContainer = services.find(
-    (c) => (c.service || c.name) === selectedService,
-  );
+
+  useEffect(() => {
+    if (task) setTab("task");
+    else setTab((current) => (current === "task" ? "logs" : current));
+  }, [task]);
 
   return (
     <aside className="detail-pane">
@@ -144,10 +265,19 @@ export function DetailPane({ stack, selectedService, onSelectService }: Props) {
         <button className={tab === "terminal" ? "active" : ""} onClick={() => setTab("terminal")}>
           终端
         </button>
+        <button className={tab === "task" ? "active" : ""} onClick={() => setTab("task")}>
+          任务
+        </button>
       </nav>
 
       <div className="detail-content">
-        {!stack ? (
+        {tab === "task" ? (
+          task ? (
+            <TaskView task={task} onFinished={onTaskFinished} onClear={onTaskClear} />
+          ) : (
+            <div className="detail-empty">暂无任务输出。执行启动、拉取等操作后，这里会显示实时进度。</div>
+          )
+        ) : !stack ? (
           <div className="detail-empty">选择一个项目后，可在这里查看容器日志与终端。</div>
         ) : !selectedService ? (
           <div className="detail-empty">点击上方容器，查看日志或打开终端。</div>

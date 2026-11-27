@@ -65,22 +65,41 @@ export function startTask({ stack, action, args }: StartTaskOptions): TaskStarte
   tasks.set(id, task);
 
   const composeFile = composeFileFor(stack);
+  const pending: Record<TaskLine["stream"], string> = { stdout: "", stderr: "" };
+  const push = (stream: TaskLine["stream"], text: string, replace: boolean) => {
+    const clean = text.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "").trim();
+    if (!clean) return;
+    const entry: TaskLine = { stream, text: clean.slice(0, 4000), replace };
+    task.lines.push(entry);
+    if (task.lines.length > 5000) task.lines.shift();
+    for (const listener of task.listeners) {
+      try {
+        listener(entry);
+      } catch {
+        // ignore broken listener
+      }
+    }
+  };
+  // docker pull 用 \r 原地刷新进度；按终端语义处理，\r 覆盖上一行，\n 才产生新行。
   const emit = (stream: TaskLine["stream"], text: string) => {
     if (!text) return;
-    // 拆分多行，去掉 docker 进度回车的控制字符但保留可读内容
-    for (const raw of text.split("\n")) {
-      const line = raw.replace(/\r/g, "");
-      if (!line.trim()) continue;
-      const entry: TaskLine = { stream, text: line.slice(0, 4000) };
-      task.lines.push(entry);
-      if (task.lines.length > 5000) task.lines.shift();
-      for (const listener of task.listeners) {
-        try {
-          listener(entry);
-        } catch {
-          // ignore broken listener
-        }
+    const buffer = (pending[stream] + text).replace(/\r\n/g, "\n");
+    pending[stream] = "";
+    let current = "";
+    for (const char of buffer) {
+      if (char === "\r" || char === "\n") {
+        if (current.trim()) push(stream, current, char === "\r");
+        current = "";
+      } else {
+        current += char;
       }
+    }
+    pending[stream] = current;
+  };
+  const flushPending = () => {
+    for (const stream of ["stdout", "stderr"] as const) {
+      if (pending[stream].trim()) push(stream, pending[stream], false);
+      pending[stream] = "";
     }
   };
 
@@ -113,6 +132,7 @@ export function startTask({ stack, action, args }: StartTaskOptions): TaskStarte
       }
     }
 
+    flushPending();
     task.done = true;
     task.exitCode = exitCode;
     task.ok = exitCode === 0;

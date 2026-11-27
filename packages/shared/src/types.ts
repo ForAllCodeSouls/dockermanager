@@ -183,6 +183,8 @@ export interface DebugTokenResponse {
 export interface TaskLine {
   stream: "stdout" | "stderr";
   text: string;
+  /** true 表示覆盖上一行，用于 docker 进度条的回车刷新 */
+  replace?: boolean;
 }
 
 export interface TaskStarted {
