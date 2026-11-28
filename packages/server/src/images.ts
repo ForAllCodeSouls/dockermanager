@@ -312,10 +312,18 @@ export async function pruneImages(scope: "dangling" | "unused" | "all"): Promise
   });
   const results = await removeImages(selected.map((image) => image.fullId));
   const okIds = new Set(
-    results.filter((item) => item.ok).map((item) => item.id.replace(/^sha256:/, "")),
+    results
+      .filter((item) => item.ok)
+      .flatMap((item) => {
+        const hex = item.id.replace(/^sha256:/, "");
+        return [hex, hex.slice(0, 12)];
+      }),
   );
   const reclaimedBytes = selected
-    .filter((image) => okIds.has(image.fullId) || okIds.has(image.id))
+    .filter((image) => {
+      const hex = image.fullId.replace(/^sha256:/, "");
+      return okIds.has(hex) || okIds.has(hex.slice(0, 12));
+    })
     .reduce((sum, image) => sum + image.size, 0);
   const result: ImagePruneResult = {
     removed: results.filter((item) => item.ok).map((item) => item.id),

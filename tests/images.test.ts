@@ -37,6 +37,32 @@ describe("image helpers", () => {
     expect(resolveImageId("missing", [{ id: "abcdef123456", fullId: "sha256:abcdef1234567890" }])).toBeNull();
   });
 
+  it("matches prune results to images by full or short id", () => {
+    const selected = [
+      { id: "abcdef123456", fullId: "sha256:abcdef1234567890", size: 100 },
+      { id: "999999999999", fullId: "sha256:9999999999999999", size: 200 },
+    ];
+    const results = [
+      { id: "sha256:abcdef1234567890", ok: true, message: "ok" },
+      { id: "sha256:9999999999999999", ok: false, message: "busy" },
+    ];
+    const okIds = new Set(
+      results
+        .filter((item) => item.ok)
+        .flatMap((item) => {
+          const hex = item.id.replace(/^sha256:/, "");
+          return [hex, hex.slice(0, 12)];
+        }),
+    );
+    const reclaimed = selected
+      .filter((image) => {
+        const hex = image.fullId.replace(/^sha256:/, "");
+        return okIds.has(hex) || okIds.has(hex.slice(0, 12));
+      })
+      .reduce((sum, image) => sum + image.size, 0);
+    expect(reclaimed).toBe(100);
+  });
+
   it("exposes image management endpoints", () => {
     expect(API.images).toBe("/api/images");
     expect(API.imageRemove).toBe("/api/images/remove");
