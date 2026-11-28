@@ -212,6 +212,9 @@ export function StackEditor({
   }
 
   const services = stack.services;
+  // 运行中显示“停止”，其余状态（已停止/已创建/部分启动/异常）统一显示“启动”，
+  // 与状态徽章保持一致，避免“停止”和“启动”两个按钮同时出现。
+  const isRunning = stack.status === "running";
 
   return (
     <section className="editor-pane">
@@ -240,8 +243,13 @@ export function StackEditor({
             <button className="action-btn" title="拉取并更新" onClick={() => onStackAction(stack.name, "update")}>
               <CloudDownload size={14} /> 更新
             </button>
-            <button className="action-btn" title="停止项目" onClick={() => onStackAction(stack.name, "stop")}>
-              <Square size={13} fill="currentColor" /> 停止
+            <button
+              className="action-btn"
+              title={isRunning ? "停止项目" : "启动项目"}
+              onClick={() => onStackAction(stack.name, isRunning ? "stop" : "start")}
+            >
+              {isRunning ? <Square size={13} fill="currentColor" /> : <Play size={13} />}
+              {isRunning ? "停止" : "启动"}
             </button>
             <div className="action-more" ref={menuRef}>
               <button
@@ -254,7 +262,7 @@ export function StackEditor({
               {menuOpen && (
                 <div className="action-menu">
                   {stackActions
-                    .filter((item) => ["start", "pull", "down"].includes(item.action))
+                    .filter((item) => ["pull", "down"].includes(item.action))
                     .map((item) => (
                       <button
                         key={item.action}
