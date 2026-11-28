@@ -10,7 +10,6 @@ import {
   ChevronDown,
   CloudDownload,
   Download,
-  Pencil,
   Play,
   RotateCw,
   Square,
@@ -42,15 +41,17 @@ interface Props {
   onRemove: (name: string) => void;
   onChanged: () => void;
   onNotice: (message: string) => void;
+  /** 有任务正在执行时禁用操作，避免重复点击产生并发任务 */
+  busy?: boolean;
 }
 
 const stackActions: { action: StackAction; label: string }[] = [
   { action: "start", label: "启动" },
   { action: "stop", label: "停止" },
   { action: "restart", label: "重启" },
-  { action: "update", label: "更新" },
-  { action: "pull", label: "拉取" },
-  { action: "down", label: "停止并移除" },
+  { action: "update", label: "拉取并重启" },
+  { action: "pull", label: "只拉取镜像" },
+  { action: "down", label: "停止并删除容器" },
 ];
 
 const serviceActions: { action: ServiceAction; label: string }[] = [
@@ -59,6 +60,13 @@ const serviceActions: { action: ServiceAction; label: string }[] = [
   { action: "restart", label: "重启" },
   { action: "pull", label: "拉取" },
 ];
+
+const serviceIcons = {
+  start: Play,
+  stop: Square,
+  restart: RotateCw,
+  pull: Download,
+};
 
 const statusLabel: Record<string, string> = {
   running: "已启动",
@@ -153,9 +161,8 @@ function ServiceRows({
         const serviceName = container.service || container.name;
         return (
         <div
-          className="service-row"
+          className={`service-row ${selectedService === serviceName ? "selected" : ""}`}
           key={container.id}
-          style={selectedService === serviceName ? { borderColor: "var(--accent)" } : undefined}
         >
           <span className={`status-dot ${container.state}`} />
           <button className="service-select" onClick={() => onSelect(serviceName)}>
@@ -163,15 +170,19 @@ function ServiceRows({
           </button>
           <span className="service-sub">{container.status}</span>
           <span className="service-mini-actions">
-            {serviceActions.map((item) => (
-              <button
-                key={item.action}
-                title={`${item.label}服务 ${container.name}`}
-                onClick={() => onAction(serviceName, item.action)}
-              >
-                {item.label}
-              </button>
-            ))}
+            {serviceActions.map((item) => {
+              const Icon = serviceIcons[item.action];
+              return (
+                <button
+                  key={item.action}
+                  aria-label={`${item.label}服务 ${container.name}`}
+                  title={`${item.label}服务 ${container.name}`}
+                  onClick={() => onAction(serviceName, item.action)}
+                >
+                  <Icon size={13} />
+                </button>
+              );
+            })}
           </span>
         </div>
         );
@@ -189,6 +200,7 @@ export function StackEditor({
   onRemove,
   onChanged,
   onNotice,
+  busy = false,
 }: Props) {
   const host = getCurrentHost();
   const query = useQuery({
@@ -201,6 +213,7 @@ export function StackEditor({
   const [tab, setTab] = useState<"compose" | "services" | "images">("compose");
   const [menuOpen, setMenuOpen] = useState(false);
   const [pendingImage, setPendingImage] = useState<ImageInfo | null>(null);
+  const [validateResult, setValidateResult] = useState<{ ok: boolean; message: string } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const imagesQuery = useQuery({
@@ -261,11 +274,24 @@ export function StackEditor({
         compose,
         env,
       });
-      onNotice(result.message);
+      setValidateResult({ ok: result.ok, message: result.message });
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "校验失败");
+      const message = error instanceof Error ? error.message : "校验失败";
+      setValidateResult({ ok: false, message });
     }
   }
+
+  // Ctrl/Cmd + S 保存当前配置
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && tab === "compose" && !busy) {
+        event.preventDefault();
+        void save();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tab, busy, compose, env]);
 
   function downloadCompose() {
     const blob = new Blob([compose], { type: "text/yaml;charset=utf-8" });
@@ -301,34 +327,46 @@ export function StackEditor({
           <span className="head-meta muted small">
             {services.length} 个服务 · 更新于 {new Date(stack.composeModifiedAt).toLocaleString("zh-CN")}
           </span>
+          <button
+            className="ghost danger small-btn delete-btn title-delete"
+            title="删除项目目录和容器，镜像不会被删除"
+            disabled={busy}
+            onClick={() => onRemove(stack.name)}
+          >
+            <Trash2 size={13} /> 删除项目
+          </button>
         </div>
         <div className="stack-actions">
-          <div className="action-group">
+          <div className="action-group secondary-actions">
             <button
-              className={`action-btn ${tab === "compose" ? "active" : ""}`}
-              title="编辑配置"
-              onClick={() => setTab("compose")}
+              className="action-btn"
+              title="重启项目（不重新下载镜像）"
+              disabled={busy}
+              onClick={() => onStackAction(stack.name, "restart")}
             >
-              <Pencil size={14} /> 编辑
-            </button>
-            <button className="action-btn" title="重启项目" onClick={() => onStackAction(stack.name, "restart")}>
               <RotateCw size={14} /> 重启
-            </button>
-            <button className="action-btn" title="拉取并更新" onClick={() => onStackAction(stack.name, "update")}>
-              <CloudDownload size={14} /> 更新
             </button>
             <button
               className="action-btn"
-              title={isRunning ? "停止项目" : "启动项目"}
-              onClick={() => onStackAction(stack.name, isRunning ? "stop" : "start")}
+              title="下载最新镜像后重新创建容器"
+              disabled={busy}
+              onClick={() => onStackAction(stack.name, "update")}
             >
-              {isRunning ? <Square size={13} fill="currentColor" /> : <Play size={13} />}
-              {isRunning ? "停止" : "启动"}
+              <CloudDownload size={14} /> 拉取并重启
+            </button>
+            <button
+              className="action-btn"
+              title="只下载镜像，不影响正在运行的容器"
+              disabled={busy}
+              onClick={() => onStackAction(stack.name, "pull")}
+            >
+              <Download size={14} /> 只拉取镜像
             </button>
             <div className="action-more" ref={menuRef}>
               <button
                 className="action-btn action-chevron"
                 title="更多操作"
+                disabled={busy}
                 onClick={() => setMenuOpen((v) => !v)}
               >
                 <ChevronDown size={15} />
@@ -336,16 +374,17 @@ export function StackEditor({
               {menuOpen && (
                 <div className="action-menu">
                   {stackActions
-                    .filter((item) => ["pull", "down"].includes(item.action))
+                    .filter((item) => item.action === "down")
                     .map((item) => (
                       <button
                         key={item.action}
+                        title="删除项目目录和容器，镜像不会被删除"
                         onClick={() => {
                           onStackAction(stack.name, item.action);
                           setMenuOpen(false);
                         }}
                       >
-                        {item.action === "start" ? <Play size={13} /> : item.action === "pull" ? <Download size={13} /> : <Box size={13} />}
+                        <Box size={13} />
                         {item.label}
                       </button>
                     ))}
@@ -353,8 +392,14 @@ export function StackEditor({
               )}
             </div>
           </div>
-          <button className="delete-btn" title="删除项目" onClick={() => onRemove(stack.name)}>
-            <Trash2 size={14} /> 删除
+          <button
+            className={`primary main-action ${isRunning ? "is-stop" : ""}`}
+            title={isRunning ? "停止项目" : "启动项目"}
+            disabled={busy}
+            onClick={() => onStackAction(stack.name, isRunning ? "stop" : "start")}
+          >
+            {isRunning ? <Square size={13} fill="currentColor" /> : <Play size={13} />}
+            {isRunning ? "停止" : "启动"}
           </button>
         </div>
       </header>
@@ -362,6 +407,7 @@ export function StackEditor({
       <nav className="editor-tabs">
         <button className={tab === "compose" ? "active" : ""} onClick={() => setTab("compose")}>
           compose.yaml
+          {dirty && <span className="dirty-dot" title="有未保存的更改" />}
         </button>
         <button className={tab === "services" ? "active" : ""} onClick={() => setTab("services")}>
           服务 ({services.length})
@@ -395,12 +441,33 @@ export function StackEditor({
               spellCheck={false}
               rows={4}
             />
+            {validateResult && (
+              <div className={`validate-result ${validateResult.ok ? "ok" : "bad"}`}>
+                <span className="validate-icon">{validateResult.ok ? "✓" : "!"}</span>
+                <div>
+                  <strong>{validateResult.ok ? "配置检查通过" : "配置有问题"}</strong>
+                  <pre>{validateResult.message}</pre>
+                </div>
+                <button
+                  className="ghost small-btn"
+                  title="关闭检查结果"
+                  onClick={() => setValidateResult(null)}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             <div className="editor-actions">
-              <button className="ghost" onClick={() => void validate()}>检查配置</button>
-              <button className="ghost" onClick={downloadCompose} disabled={!compose}>下载配置文件</button>
-              <button className="ghost" onClick={() => void save()} disabled={!dirty}>只保存</button>
-              <button className="primary" onClick={() => void save(true)}>
-                保存并启动
+              <button className="ghost" disabled={busy} onClick={() => void validate()}>检查配置</button>
+              <button className="ghost" onClick={downloadCompose} disabled={!compose}>下载配置</button>
+              <button className="ghost" onClick={() => void save()} disabled={!dirty || busy}>只保存</button>
+              <button
+                className="primary"
+                title={dirty ? "保存配置并重新创建容器" : "用当前配置重新创建容器"}
+                disabled={busy}
+                onClick={() => void save(true)}
+              >
+                {dirty ? "保存并启动" : "重新启动"}
               </button>
             </div>
           </>

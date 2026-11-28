@@ -32,6 +32,27 @@ export const API = {
   images: "/api/images",
   imageRemove: "/api/images/remove",
   imagePrune: "/api/images/prune",
+  logFiles: "/api/logs/files",
+  logFile: "/api/logs/file",
+  logFileRaw: "/api/logs/file/raw",
+  logSettings: "/api/logs/settings",
+  logCleanup: "/api/logs/cleanup",
+  containerInspect: (id: string) => `/api/containers/${encodeURIComponent(id)}/inspect`,
+  containerFiles: (id: string, filePath: string) =>
+    `/api/containers/${encodeURIComponent(id)}/files?path=${encodeURIComponent(filePath)}`,
+  containerFile: (id: string, filePath: string) =>
+    `/api/containers/${encodeURIComponent(id)}/file?path=${encodeURIComponent(filePath)}`,
+  volumes: "/api/volumes",
+  volume: (name: string) => `/api/volumes/${encodeURIComponent(name)}`,
+  volumePrune: "/api/volumes/prune",
+  networks: "/api/networks",
+  network: (id: string) => `/api/networks/${encodeURIComponent(id)}`,
+  networkPrune: "/api/networks/prune",
+  networkConnect: "/api/networks/connect",
+  networkDisconnect: "/api/networks/disconnect",
+  systemPrune: "/api/system/prune",
+  backup: "/api/backup",
+  backupRestore: "/api/backup/restore",
   proxy: (hostId: string, path: string) => {
     const suffix = path.startsWith("/api/")
       ? path.slice(4)

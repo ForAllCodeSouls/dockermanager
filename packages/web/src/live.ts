@@ -31,6 +31,10 @@ const eventTypes = [
   "update.applied",
   "update.failed",
   "image.changed",
+  "volume.changed",
+  "network.changed",
+  "system.pruned",
+  "backup.restored",
 ];
 
 export function useLiveConnection(enabled: boolean, host: string): LiveState {
@@ -79,6 +83,15 @@ export function useLiveConnection(enabled: boolean, host: string): LiveState {
           }
           if (event.type === "image.changed") {
             void queryClient.invalidateQueries({ queryKey: ["images"] });
+          }
+          if (event.type === "volume.changed") {
+            void queryClient.invalidateQueries({ queryKey: ["volumes"] });
+          }
+          if (event.type === "network.changed") {
+            void queryClient.invalidateQueries({ queryKey: ["networks"] });
+          }
+          if (event.type === "backup.restored") {
+            void queryClient.invalidateQueries({ queryKey: ["backup"] });
           }
           if (event.type.startsWith("update.")) {
             window.dispatchEvent(

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Activity, ChevronRight, Folder, Info, ScrollText, Terminal } from "lucide-react";
 import {
   API,
   type ContainerInfo,
@@ -8,6 +9,7 @@ import {
   type TaskStarted,
 } from "@dockermanager/shared";
 import { getCurrentHost, scopedUrl } from "../api";
+import { ContainerFiles, ContainerInspector } from "./ContainerTools";
 import { TerminalView } from "./Terminal";
 
 interface Props {
@@ -17,6 +19,8 @@ interface Props {
   onSelectService: (service: string) => void;
   onTaskFinished: (result: TaskFinished) => void;
   onTaskClear: () => void;
+  onOpenLogHistory: (scope: string) => void;
+  onOpenTaskHistory: (scope: string) => void;
 }
 
 interface LogLine {
@@ -108,10 +112,21 @@ function ansiToHtml(text: string): string {
   return html;
 }
 
-function LogView({ stack, service, host }: { stack: string; service: string; host: string }) {
+function LogView({
+  stack,
+  service,
+  host,
+  onOpenLogHistory,
+}: {
+  stack: string;
+  service: string;
+  host: string;
+  onOpenLogHistory: (scope: string) => void;
+}) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [filter, setFilter] = useState("");
   const [showTime, setShowTime] = useState(false);
+  const [following, setFollowing] = useState(true);
   const bodyRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
   const lastTextRef = useRef("");
@@ -122,6 +137,7 @@ function LogView({ stack, service, host }: { stack: string; service: string; hos
     lastTextRef.current = "";
     reconnectedRef.current = false;
     followRef.current = true;
+    setFollowing(true);
     const source = new EventSource(scopedUrl(API.logs(stack, service)));
     source.onopen = () => {
       // 重连后服务端会重新发送 --tail 历史，清空一次避免重复刷屏
@@ -176,36 +192,62 @@ function LogView({ stack, service, host }: { stack: string; service: string; hos
   return (
     <>
       <div className="log-toolbar">
-        <input
-          placeholder="过滤日志…"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        />
-        <button
-          className={`ghost ${showTime ? "active" : ""}`}
-          title="切换时间戳"
-          onClick={() => setShowTime((v) => !v)}
-        >
-          时间
-        </button>
-        <button className="ghost" title="下载日志" onClick={download}>下载</button>
-        <button
-          className="ghost"
-          title="清空当前显示"
-          onClick={() => {
-            setLines([]);
-            lastTextRef.current = "";
-          }}
-        >
-          清空
-        </button>
+        <div className="log-toolbar-primary">
+          <input
+            aria-label="过滤日志"
+            placeholder="过滤日志…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        </div>
+        <div className="log-toolbar-secondary">
+          <button
+            className={`ghost ${showTime ? "active" : ""}`}
+            title="切换时间戳"
+            onClick={() => setShowTime((v) => !v)}
+          >
+            时间
+          </button>
+          <button
+            className="ghost"
+            title="查看按启动时间保存的历史日志"
+            onClick={() => onOpenLogHistory(`${stack}/${service}`)}
+          >
+            历史
+          </button>
+          <button
+            className={`ghost ${following ? "" : "active"}`}
+            title={following ? "正在自动跟随最新日志" : "回到最新日志并继续跟随"}
+            onClick={() => {
+              followRef.current = true;
+              setFollowing(true);
+              const el = bodyRef.current;
+              if (el) el.scrollTop = el.scrollHeight;
+            }}
+          >
+            {following ? "跟随中" : "回到最新"}
+          </button>
+          <button className="ghost" title="下载当前显示的日志" onClick={download}>下载</button>
+          <button
+            className="ghost"
+            title="只隐藏当前画面里的日志，不会删除文件"
+            onClick={() => {
+              setLines([]);
+              lastTextRef.current = "";
+            }}
+          >
+            隐藏当前
+          </button>
+        </div>
       </div>
       <div
         className="log-view"
         ref={bodyRef}
         onScroll={(e) => {
           const el = e.currentTarget;
-          followRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+          const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+          followRef.current = nearBottom;
+          setFollowing(nearBottom);
         }}
       >
         {visible.length === 0 ? (
@@ -233,10 +275,12 @@ function TaskView({
   task,
   onFinished,
   onClear,
+  onOpenTaskHistory,
 }: {
   task: TaskStarted;
   onFinished: (result: TaskFinished) => void;
   onClear: () => void;
+  onOpenTaskHistory: (scope: string) => void;
 }) {
   const [lines, setLines] = useState<TaskLine[]>([]);
   const [done, setDone] = useState<TaskFinished | null>(null);
@@ -289,6 +333,13 @@ function TaskView({
         <span className="muted small" title={`${actionLabel} · ${task.stack}`}>
           {done ? (done.ok ? "完成" : `失败（退出码 ${done.exitCode}）`) : "执行中"} · {actionLabel} · {task.stack}
         </span>
+        <button
+          className="ghost"
+          title="查看这个任务的历史输出"
+          onClick={() => onOpenTaskHistory(`${task.stack}/${task.action.replace(/[^\w.\-]/g, "_")}`)}
+        >
+          历史
+        </button>
         {done && <button className="ghost" onClick={onClear}>清空</button>}
       </div>
       <div className="task-inline" ref={bodyRef}>
@@ -320,10 +371,16 @@ export function DetailPane({
   onSelectService,
   onTaskFinished,
   onTaskClear,
+  onOpenLogHistory,
+  onOpenTaskHistory,
 }: Props) {
-  const [tab, setTab] = useState<"logs" | "terminal" | "task">("logs");
+  const [tab, setTab] = useState<"logs" | "terminal" | "task" | "inspect" | "files">("logs");
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const host = getCurrentHost();
   const services: ContainerInfo[] = stack?.services ?? [];
+  const selectedContainer = services.find(
+    (container) => (container.service || container.name) === selectedService,
+  );
 
   useEffect(() => {
     if (task) setTab("task");
@@ -340,49 +397,107 @@ export function DetailPane({
       <div className="container-list">
         {services.length === 0 ? (
           <span className="muted small" style={{ padding: "8px 4px" }}>
-            {stack ? "这个项目暂无容器" : "请从左侧选择一个项目"}
+            {stack ? "这个项目还没有容器，启动服务后会出现在这里。" : "请从左侧选择一个项目，再查看它的容器。"}
           </span>
         ) : (
-          services.map((container) => (
-            <div
-              key={container.id}
-              className={`container-item ${(container.service || container.name) === selectedService ? "selected" : ""}`}
-              onClick={() => onSelectService(container.service || container.name)}
-              title={`${container.image} · ${container.ports}`}
-            >
-              <span className={`status-dot ${container.state}`} />
-              <span className="c-name">{container.name}</span>
-              <span className="c-state">{container.state}</span>
-            </div>
-          ))
+          services.map((container) => {
+            const serviceName = container.service || container.name;
+            const isSelected = serviceName === selectedService;
+            const expanded = isSelected && !collapsed[serviceName];
+            return (
+              <div
+                key={container.id}
+                className={`container-item ${isSelected ? "selected" : ""} ${expanded ? "expanded" : ""}`}
+              >
+                <button
+                  className="container-toggle"
+                  aria-label={expanded ? "收起容器信息" : "展开容器信息"}
+                  title={expanded ? "收起容器信息" : "展开容器信息"}
+                  onClick={() => setCollapsed((old) => ({ ...old, [serviceName]: !old[serviceName] }))}
+                >
+                  <ChevronRight size={13} />
+                </button>
+                <button
+                  className="container-summary"
+                  onClick={() => {
+                    setCollapsed((old) => ({ ...old, [serviceName]: false }));
+                    onSelectService(serviceName);
+                  }}
+                  title={`${container.image} · ${container.ports}`}
+                >
+                  <span className={`status-dot ${container.state}`} />
+                  <span className="c-name">{container.name}</span>
+                  <span className="c-state">{container.state}</span>
+                </button>
+                {expanded && (
+                  <div className="container-detail">
+                    <span>镜像：{container.image || "—"}</span>
+                    <span>端口：{container.ports || "未映射"}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 
       <nav className="detail-tabs">
-        <button className={tab === "logs" ? "active" : ""} onClick={() => setTab("logs")}>
-          日志
-        </button>
-        <button className={tab === "terminal" ? "active" : ""} onClick={() => setTab("terminal")}>
-          终端
-        </button>
-        <button className={tab === "task" ? "active" : ""} onClick={() => setTab("task")}>
-          任务
-        </button>
+        <div className="detail-tab-group">
+          <span className="tab-group-label">实时</span>
+          <button className={tab === "logs" ? "active" : ""} onClick={() => setTab("logs")}>
+            <ScrollText size={13} /> 日志
+          </button>
+          <button className={tab === "terminal" ? "active" : ""} onClick={() => setTab("terminal")}>
+            <Terminal size={13} /> 终端
+          </button>
+          <button className={tab === "task" ? "active" : ""} onClick={() => setTab("task")}>
+            <Activity size={13} /> 任务
+          </button>
+        </div>
+        <div className="detail-tab-group">
+          <span className="tab-group-label">静态</span>
+          <button className={tab === "inspect" ? "active" : ""} onClick={() => setTab("inspect")}>
+            <Info size={13} /> 详情
+          </button>
+          <button className={tab === "files" ? "active" : ""} onClick={() => setTab("files")}>
+            <Folder size={13} /> 文件
+          </button>
+        </div>
       </nav>
 
       <div className="detail-content">
         {tab === "task" ? (
           task ? (
-            <TaskView task={task} onFinished={onTaskFinished} onClear={onTaskClear} />
+            <TaskView
+              task={task}
+              onFinished={onTaskFinished}
+              onClear={onTaskClear}
+              onOpenTaskHistory={onOpenTaskHistory}
+            />
           ) : (
             <div className="detail-empty">暂无任务输出。执行启动、拉取等操作后，这里会显示实时进度。</div>
           )
         ) : !stack ? (
-          <div className="detail-empty">选择一个项目后，可在这里查看容器日志与终端。</div>
+          <div className="detail-empty">选择一个项目后，可在这里查看容器日志、终端、任务、详情和文件。</div>
         ) : !selectedService ? (
-          <div className="detail-empty">点击上方容器，查看日志或打开终端。</div>
+          <div className="detail-empty">点击上方容器，查看日志、终端、详情或文件。</div>
         ) : tab === "logs" ? (
-          <LogView stack={stack.name} service={selectedService} host={host} />
+          <LogView
+            stack={stack.name}
+            service={selectedService}
+            host={host}
+            onOpenLogHistory={onOpenLogHistory}
+          />
+        ) : tab === "inspect" || tab === "files" ? (
+          selectedContainer ? (
+            tab === "inspect" ? (
+              <ContainerInspector id={selectedContainer.id} />
+            ) : (
+              <ContainerFiles key={selectedContainer.id} id={selectedContainer.id} />
+            )
+          ) : (
+            <div className="detail-empty">找不到这个容器，可能已被删除。</div>
+          )
         ) : (
           <TerminalView host={host} stack={stack.name} service={selectedService} />
         )}

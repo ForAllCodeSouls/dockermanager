@@ -31,7 +31,7 @@ export function AuthScreen({ mode }: Props) {
   return (
     <div className="auth-screen">
       <form className="auth-card" onSubmit={submit}>
-        <div className="brand-mark">SD</div>
+        <img className="brand-mark" src="/favicon.svg" alt="DockerManager" />
         <h1>DockerManager</h1>
         <p className="muted">
           {mode === "setup" ? "首次使用，请设置管理密码" : "输入管理密码以继续"}

@@ -5,6 +5,7 @@ import type { TaskFinished, TaskLine, TaskStarted } from "@dockermanager/shared"
 import { config } from "./config.js";
 import { composeFileFor } from "./docker.js";
 import { eventBus } from "./event-bus.js";
+import { appendLog, stampForDate } from "./log-store.js";
 import { appendAudit } from "./store.js";
 
 interface Task {
@@ -64,6 +65,11 @@ export function startTask({ stack, action, args }: StartTaskOptions): TaskStarte
   };
   tasks.set(id, task);
 
+  // 任务输出单独落盘：scope 为「项目/动作」，例如 demo/start、demo/service:restart app
+  const taskScope = `${stack}/${action.replace(/[^\w.\-]/g, "_")}`;
+  const taskStamp = stampForDate(new Date(task.startedAt));
+  appendLog("task", taskScope, `任务 ${id} · ${action} · 开始`, taskStamp);
+
   const composeFile = composeFileFor(stack);
   const pending: Record<TaskLine["stream"], string> = { stdout: "", stderr: "" };
   const push = (stream: TaskLine["stream"], text: string, replace: boolean) => {
@@ -72,6 +78,10 @@ export function startTask({ stack, action, args }: StartTaskOptions): TaskStarte
     const entry: TaskLine = { stream, text: clean.slice(0, 4000), replace };
     task.lines.push(entry);
     if (task.lines.length > 5000) task.lines.shift();
+    // \r 刷新的中间进度不落盘，只保存最终行，避免日志文件被进度条刷屏
+    if (!replace) {
+      appendLog("task", taskScope, `${stream === "stderr" ? "[错误] " : ""}${clean}`, taskStamp);
+    }
     for (const listener of task.listeners) {
       try {
         listener(entry);
@@ -136,6 +146,12 @@ export function startTask({ stack, action, args }: StartTaskOptions): TaskStarte
     task.done = true;
     task.exitCode = exitCode;
     task.ok = exitCode === 0;
+    appendLog(
+      "task",
+      taskScope,
+      `任务 ${id} · ${exitCode === 0 ? "完成" : `失败（退出码 ${exitCode}）`}`,
+      taskStamp,
+    );
     const result: TaskFinished = { ok: task.ok, exitCode };
     for (const listener of task.finishListeners) {
       try {

@@ -1,15 +1,25 @@
-import { useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { API, type HostsResponse } from "@dockermanager/shared";
-import { apiFetchLocal, getCurrentHost, setCurrentHost } from "../api";
+import { apiFetchLocal } from "../api";
 
 interface Props {
-  onHostChanged: () => void;
+  host: string;
+  onHostChange: (host: string) => void;
 }
 
-export function HostSwitcher({ onHostChanged }: Props) {
+/** 只重置随主机变化的数据；health/hosts 属于主实例，清掉会导致闪回启动页。 */
+function resetHostScopedQueries(queryClient: QueryClient): void {
+  queryClient.resetQueries({
+    predicate: (query) => {
+      const key = query.queryKey[0];
+      return key !== "health" && key !== "hosts";
+    },
+  });
+}
+
+export function HostSwitcher({ host, onHostChange }: Props) {
   const queryClient = useQueryClient();
-  const [host, setHost] = useState(getCurrentHost());
   const hosts = useQuery({
     queryKey: ["hosts"],
     queryFn: () => apiFetchLocal<HostsResponse>(API.hosts),
@@ -20,19 +30,15 @@ export function HostSwitcher({ onHostChanged }: Props) {
   useEffect(() => {
     if (!hosts.data) return;
     const exists = hosts.data.hosts.some((item) => item.id === host);
-    if (!exists) {
-      setHost("local");
-      setCurrentHost("local");
-      onHostChanged();
+    if (!exists && host !== "local") {
+      onHostChange("local");
+      resetHostScopedQueries(queryClient);
     }
-  }, [hosts.data, host, onHostChanged]);
+  }, [hosts.data, host, onHostChange, queryClient]);
 
   function change(value: string) {
-    setHost(value);
-    setCurrentHost(value);
-    // 主机数据完全不同，清空所有缓存后重新拉取
-    queryClient.clear();
-    onHostChanged();
+    onHostChange(value);
+    resetHostScopedQueries(queryClient);
   }
 
   return (

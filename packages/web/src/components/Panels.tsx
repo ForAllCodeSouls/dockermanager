@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   API,
@@ -13,16 +14,46 @@ import { apiFetch, post } from "../api";
 import type { LiveState } from "../live";
 import { ConfirmDialog } from "./ConfirmDialog";
 
-export function AuditPanel() {
+/** 所有侧边面板共用的标题区：标题 + 一句话说明 + 关闭按钮 */
+export function PanelHeader({
+  title,
+  description,
+  onClose,
+}: {
+  title: string;
+  description: string;
+  onClose: () => void;
+}) {
+  return (
+    <header className="panel-header">
+      <div>
+        <h2>{title}</h2>
+        <p className="muted small">{description}</p>
+      </div>
+      <button className="ghost small-btn panel-close" aria-label="关闭面板" title="关闭面板" onClick={onClose}>
+        <X size={15} />
+      </button>
+    </header>
+  );
+}
+
+export function AuditPanel({ onClose, onOpenHistory }: { onClose: () => void; onOpenHistory: () => void }) {
   const audit = useQuery({
     queryKey: ["audit"],
     queryFn: () => apiFetch<AuditPage>(`${API.audit}?limit=100`),
   });
   return (
     <div className="panel-body">
-      <h2>操作审计</h2>
-      {audit.isLoading && <p className="muted">加载中…</p>}
-      {audit.data?.entries.length === 0 && <p className="muted">暂无记录</p>}
+      <PanelHeader
+        title="操作审计"
+        description="记录项目操作与任务结果，历史按启动时间分别保存。"
+        onClose={onClose}
+      />
+      <div className="panel-actions">
+        <button className="ghost" onClick={onOpenHistory}>查看历史文件</button>
+      </div>
+      {audit.isLoading && <p className="muted" role="status">正在读取审计记录…</p>}
+      {audit.data?.entries.length === 0 && <p className="muted">还没有操作记录。执行启动、停止等操作后会自动记录。</p>}
       <div className="audit-list">
         {audit.data?.entries.map((entry) => (
           <div className="audit-row" key={entry.id}>
@@ -39,13 +70,15 @@ export function AuditPanel() {
 }
 
 interface DiagnosticsProps {
+  onClose: () => void;
   live: LiveState;
   snapshot: Snapshot | undefined;
   health: HealthResponse | undefined;
   onNotice: (message: string) => void;
+  onOpenServerLogs: () => void;
 }
 
-export function DiagnosticsPanel({ live, snapshot, health, onNotice }: DiagnosticsProps) {
+export function DiagnosticsPanel({ onClose, live, snapshot, health, onNotice, onOpenServerLogs }: DiagnosticsProps) {
   const queryClient = useQueryClient();
   const version = useQuery({
     queryKey: ["version"],
@@ -107,8 +140,11 @@ export function DiagnosticsPanel({ live, snapshot, health, onNotice }: Diagnosti
 
   return (
     <div className="panel-body">
-      <h2>连接诊断</h2>
-      <p className="muted">控制面使用 SSE 自动续传；断线时界面继续读取本地快照。</p>
+      <PanelHeader
+        title="连接诊断"
+        description="实时连接会自动续传；断线时界面继续读取本地快照。"
+        onClose={onClose}
+      />
       <table className="diag-table">
         <tbody>
           {rows.map(([key, value]) => (
@@ -120,6 +156,7 @@ export function DiagnosticsPanel({ live, snapshot, health, onNotice }: Diagnosti
         </tbody>
       </table>
       <div className="panel-actions">
+        <button className="ghost" onClick={onOpenServerLogs}>运行日志</button>
         <button className="ghost" disabled={check.isPending} onClick={() => check.mutate()}>
           检查更新
         </button>

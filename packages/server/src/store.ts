@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { AuditEntry } from "@dockermanager/shared";
 import { config } from "./config.js";
 import { eventBus } from "./event-bus.js";
+import { appendLog, listLogFiles } from "./log-store.js";
 
 interface AuthStore {
   passwordHash?: string;
@@ -11,7 +12,8 @@ interface AuthStore {
 }
 
 const authFile = path.join(config.dataDir, "auth.json");
-const auditFile = path.join(config.dataDir, "audit.jsonl");
+const legacyAuditFile = path.join(config.dataDir, "audit.jsonl");
+const auditDir = path.join(config.dataDir, "logs", "audit");
 
 function readAuth(): AuthStore {
   try {
@@ -26,6 +28,22 @@ function writeAuth(value: AuthStore): void {
   fs.writeFileSync(temp, JSON.stringify(value, null, 2), { mode: 0o600 });
   fs.renameSync(temp, authFile);
 }
+
+/** 旧版把全部审计写在一个 audit.jsonl；升级后挪进分片目录，保留历史且纳入保留策略。 */
+function migrateLegacyAudit(): void {
+  try {
+    if (!fs.existsSync(legacyAuditFile)) return;
+    fs.mkdirSync(auditDir, { recursive: true });
+    const target = path.join(auditDir, "legacy.jsonl");
+    if (fs.existsSync(target)) return;
+    fs.renameSync(legacyAuditFile, target);
+    const now = new Date();
+    fs.utimesSync(target, now, now);
+  } catch {
+    // 迁移失败不影响新日志写入
+  }
+}
+migrateLegacyAudit();
 
 export function needsSetup(): boolean {
   return !readAuth().passwordHash;
@@ -45,32 +63,26 @@ export function appendAudit(entry: Omit<AuditEntry, "id" | "at">): AuditEntry {
     at: new Date().toISOString(),
     ...entry,
   };
-  fs.appendFileSync(auditFile, `${JSON.stringify(full)}\n`, { mode: 0o600 });
-  trimAudit();
+  appendLog("audit", "", JSON.stringify(full));
   eventBus.publish("audit.created", full);
   return full;
 }
 
 function readAllAudit(): AuditEntry[] {
-  try {
-    return fs
-      .readFileSync(auditFile, "utf8")
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as AuditEntry)
-      .reverse();
-  } catch {
-    return [];
+  const entries = new Map<string, AuditEntry>();
+  for (const file of listLogFiles("audit")) {
+    try {
+      const raw = fs.readFileSync(path.join(config.dataDir, "logs", file.relativePath), "utf8");
+      for (const line of raw.split("\n")) {
+        if (!line) continue;
+        const item = JSON.parse(line) as AuditEntry;
+        if (item?.id) entries.set(item.id, item);
+      }
+    } catch {
+      // 单条损坏不影响其他记录
+    }
   }
-}
-
-function trimAudit(): void {
-  const all = readAllAudit();
-  if (all.length <= config.auditMaxEntries) return;
-  const kept = all.slice(0, config.auditMaxEntries).reverse();
-  fs.writeFileSync(auditFile, `${kept.map((e) => JSON.stringify(e)).join("\n")}\n`, {
-    mode: 0o600,
-  });
+  return [...entries.values()].sort((a, b) => b.at.localeCompare(a.at));
 }
 
 export function readAudit(limit = 50, offset = 0): { entries: AuditEntry[]; total: number } {

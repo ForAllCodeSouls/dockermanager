@@ -12,6 +12,7 @@ import {
 } from "@dockermanager/shared";
 import { apiFetch, post } from "../api";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { PanelHeader } from "./Panels";
 
 const usageLabel: Record<ImageUsage, string> = {
   used: "使用中",
@@ -23,12 +24,13 @@ const usageLabel: Record<ImageUsage, string> = {
 const usageOrder: ImageUsage[] = ["used", "declared", "unused", "dangling"];
 
 interface Props {
+  onClose: () => void;
   onNotice: (message: string) => void;
   /** 项目页点击镜像标签时可预先聚焦某个镜像 */
   focusTag?: string | null;
 }
 
-export function ImagesPanel({ onNotice, focusTag }: Props) {
+export function ImagesPanel({ onClose, onNotice, focusTag }: Props) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
@@ -117,15 +119,16 @@ export function ImagesPanel({ onNotice, focusTag }: Props) {
 
   return (
     <div className="panel-body images-panel">
-      <div className="panel-title-row">
-        <h2>镜像管理</h2>
+      <PanelHeader
+        title="镜像管理"
+        description="镜像引用包含运行中和已停止的容器；删除后下次启动会重新拉取。"
+        onClose={onClose}
+      />
+      <div className="panel-actions compact">
         <button className="ghost small-btn" onClick={refresh} disabled={images.isFetching}>
-          {images.isFetching ? "刷新中…" : "刷新"}
+          {images.isFetching ? "正在刷新…" : "刷新"}
         </button>
       </div>
-      <p className="muted small">
-        镜像引用包含运行中和已停止的容器；被 compose 声明但未运行的镜像单独标记，删除后下次启动会重新拉取。
-      </p>
 
       <div className="image-summary">
         <div><strong>{summary?.total ?? "—"}</strong><span>全部镜像</span></div>
@@ -177,9 +180,13 @@ export function ImagesPanel({ onNotice, focusTag }: Props) {
         <pre className="image-warning" style={{ whiteSpace: "pre-wrap" }}>{warning}</pre>
       )}
 
-      {images.isLoading && <p className="muted">读取镜像中…</p>}
+      {images.isLoading && <p className="muted" role="status">正在读取镜像…</p>}
       {images.isError && <p className="inline-error">{String(images.error)}</p>}
-      {!images.isLoading && filtered.length === 0 && <p className="muted">没有匹配的镜像。</p>}
+      {!images.isLoading && filtered.length === 0 && (
+        <p className="muted">
+          {search ? "没有匹配的镜像，换个关键词试试。" : "本机还没有镜像。拉取或构建一个镜像后会出现在这里。"}
+        </p>
+      )}
 
       {usageOrder.map((usage) => {
         const group = grouped.get(usage) ?? [];

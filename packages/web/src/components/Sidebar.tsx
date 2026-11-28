@@ -11,7 +11,6 @@ interface Props {
   onToggleCheck: (name: string, checked: boolean) => void;
   onBatch: (action: StackAction) => void;
   onNewProject: () => void;
-  onOpenPanel: (panel: "audit" | "diagnostics") => void;
 }
 
 const batchActions: { action: StackAction; label: string }[] = [
@@ -32,7 +31,6 @@ export function Sidebar({
   onToggleCheck,
   onBatch,
   onNewProject,
-  onOpenPanel,
 }: Props) {
   return (
     <aside className="sidebar">
@@ -103,10 +101,7 @@ export function Sidebar({
             ))}
           </div>
         </div>
-        <div className="sidebar-foot-row">
-          <button className="ghost" onClick={() => onOpenPanel("diagnostics")}>诊断</button>
-          <button className="ghost" onClick={() => onOpenPanel("audit")}>审计</button>
-        </div>
+        <p className="sidebar-tip">诊断、审计、镜像和日志都在顶部菜单里。</p>
       </div>
     </aside>
   );

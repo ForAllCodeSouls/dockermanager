@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="DockerManager">
+  <rect width="64" height="64" rx="14" fill="#222630"/>
+  <rect x="12" y="15" width="34" height="9" rx="4" fill="#4f8cff"/>
+  <rect x="12" y="28" width="34" height="9" rx="4" fill="#67e5bd"/>
+  <rect x="12" y="41" width="34" height="9" rx="4" fill="#8ab4ff"/>
+  <rect x="49" y="15" width="4" height="35" rx="2" fill="#e7ebf2"/>
+</svg>

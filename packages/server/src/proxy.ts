@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { isAgentRequest } from "./auth.js";
+import { isAuthenticated } from "./auth.js";
 import { findAgent } from "./hosts.js";
 
 /** 注册多主机反向代理：/api/host/:hostId/<原API路径> → agent 的 /api/<原API路径> */
@@ -14,8 +14,10 @@ export function registerProxy(app: FastifyInstance): void {
       if (!agent) {
         return reply.code(404).send({ error: "未知主机" });
       }
-      if (!isAgentRequest(request, agent.token)) {
-        return reply.code(401).send({ error: "agent 认证失败" });
+      // 浏览器带着主实例的会话 Cookie；代理负责用它校验用户身份，
+      // 再用 AGENT_TOKEN 作为 Bearer Token 访问远端 agent。
+      if (!isAuthenticated(request)) {
+        return reply.code(401).send({ error: "未登录或会话已过期" });
       }
 
       const target = `${agent.url}/api/${wildcard}${request.url.includes("?") ? `?${request.url.split("?")[1]}` : ""}`;

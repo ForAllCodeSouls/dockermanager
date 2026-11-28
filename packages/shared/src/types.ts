@@ -63,7 +63,11 @@ export type ServerEventType =
   | "update.available"
   | "update.applied"
   | "update.failed"
-  | "image.changed";
+  | "image.changed"
+  | "volume.changed"
+  | "network.changed"
+  | "system.pruned"
+  | "backup.restored";
 
 export interface ServerEvent<T = unknown> {
   seq: number;
@@ -281,5 +285,218 @@ export interface ImagePruneResult {
   removed: string[];
   failed: ImageRemoveResult[];
   reclaimedBytes: number;
+}
+
+/** 日志分四类：容器服务输出、任务输出、操作审计、服务自身运行日志 */
+export type LogCategory = "container" | "task" | "audit" | "server";
+
+/** 一个按启动时间切分的日志文件 */
+export interface LogFileInfo {
+  category: LogCategory;
+  /** 归属标识：容器日志为「项目/服务」，任务日志为「项目/动作」，其余为空 */
+  scope: string;
+  /** 文件名，形如 2026-11-28_09-04-57_123.log */
+  name: string;
+  /** 相对日志根目录的路径，读取/删除时使用 */
+  relativePath: string;
+  /** 从文件名还原的启动时间 */
+  startedAt: string;
+  size: number;
+  modifiedAt: string;
+}
+
+export interface LogFilesResponse {
+  generatedAt: string;
+  files: LogFileInfo[];
+}
+
+export interface LogFileContent {
+  name: string;
+  category: LogCategory;
+  scope: string;
+  /** 末尾若干行，避免一次把大文件塞给前端 */
+  lines: string[];
+  totalLines: number;
+  truncated: boolean;
+}
+
+/** 每类日志的保留天数，0 表示永久保留 */
+export type LogRetention = Record<LogCategory, number>;
+
+export interface LogSettingsResponse {
+  retention: LogRetention;
+}
+
+export interface LogCleanupResult {
+  removed: number;
+  failed: number;
+}
+
+/* ===== 容器详情与文件 ===== */
+
+export interface ContainerMount {
+  type: string;
+  source: string;
+  destination: string;
+  mode: string;
+}
+
+export interface ContainerPort {
+  ip: string;
+  privatePort: number;
+  publicPort: number | null;
+  type: string;
+}
+
+export interface ContainerDetail {
+  id: string;
+  name: string;
+  image: string;
+  state: string;
+  status: string;
+  createdAt: string;
+  startedAt: string;
+  command: string;
+  /** 已做脱敏的环境变量，格式 KEY=VALUE */
+  env: string[];
+  mounts: ContainerMount[];
+  ports: ContainerPort[];
+  networks: string[];
+  labels: Record<string, string>;
+  restartPolicy: string;
+  health: string | null;
+  note: string;
+}
+
+export interface ContainerFileEntry {
+  name: string;
+  path: string;
+  type: "file" | "dir" | "link" | "other";
+  size: number;
+  modifiedAt: string;
+  mode: string;
+}
+
+export interface ContainerFilesResponse {
+  path: string;
+  entries: ContainerFileEntry[];
+  note: string;
+}
+
+export interface ContainerFileContent {
+  path: string;
+  content: string;
+  truncated: boolean;
+  note: string;
+}
+
+export interface ContainerFileWrite {
+  path: string;
+  content: string;
+}
+
+/* ===== 卷与网络 ===== */
+
+export interface VolumeInfo {
+  name: string;
+  driver: string;
+  mountpoint: string;
+  createdAt: string;
+  labels: Record<string, string>;
+  usedBy: string[];
+  inUse: boolean;
+}
+
+export interface VolumesResponse {
+  generatedAt: string;
+  volumes: VolumeInfo[];
+  summary: { total: number; unused: number };
+}
+
+export interface VolumeCreate {
+  name: string;
+  labels?: Record<string, string>;
+}
+
+export interface VolumeDeleteResult {
+  name: string;
+  ok: boolean;
+  message: string;
+}
+
+export interface NetworkInfo {
+  id: string;
+  name: string;
+  driver: string;
+  scope: string;
+  subnet: string;
+  gateway: string;
+  internal: boolean;
+  attachable: boolean;
+  containers: { name: string; ipv4: string }[];
+}
+
+export interface NetworksResponse {
+  generatedAt: string;
+  networks: NetworkInfo[];
+}
+
+export interface NetworkCreate {
+  name: string;
+  driver?: string;
+  internal?: boolean;
+}
+
+export interface NetworkDeleteResult {
+  id: string;
+  ok: boolean;
+  message: string;
+}
+
+export interface NetworkConnectRequest {
+  id: string;
+  container: string;
+}
+
+/* ===== 系统清理与备份 ===== */
+
+export type PruneScope = "containers" | "networks" | "buildCache" | "volumes" | "all";
+
+export interface PruneRequest {
+  scope: PruneScope;
+}
+
+export interface PruneResult {
+  scope: PruneScope;
+  reclaimedBytes: number;
+  deleted: string[];
+  message: string;
+}
+
+export interface BackupStack {
+  name: string;
+  compose: string;
+  env: string;
+}
+
+export interface BackupData {
+  format: "dockermanager-backup";
+  version: 1;
+  createdAt: string;
+  stacks: BackupStack[];
+  volumes: { name: string; driver: string; labels: Record<string, string> }[];
+  note: string;
+}
+
+export interface BackupRestoreRequest {
+  data: BackupData;
+  overwrite: boolean;
+}
+
+export interface BackupRestoreResult {
+  restored: string[];
+  skipped: string[];
+  volumesCreated: number;
+  message: string;
 }
 
