@@ -30,6 +30,7 @@ const eventTypes = [
   "update.available",
   "update.applied",
   "update.failed",
+  "image.changed",
 ];
 
 export function useLiveConnection(enabled: boolean, host: string): LiveState {
@@ -75,6 +76,9 @@ export function useLiveConnection(enabled: boolean, host: string): LiveState {
           scheduleResync();
           if (event.type === "audit.created") {
             void queryClient.invalidateQueries({ queryKey: ["audit"] });
+          }
+          if (event.type === "image.changed") {
+            void queryClient.invalidateQueries({ queryKey: ["images"] });
           }
           if (event.type.startsWith("update.")) {
             window.dispatchEvent(

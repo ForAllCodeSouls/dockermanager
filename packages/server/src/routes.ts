@@ -10,6 +10,8 @@ import {
   type DebugTokenResponse,
   type DiagnosticsBundle,
   type HealthResponse,
+  type ImagePruneRequest,
+  type ImageRemoveRequest,
   type LoginRequest,
   type ServerEvent,
   type SetupRequest,
@@ -34,6 +36,7 @@ import { convertRunCommand } from "./convert-run.js";
 import { composeFileFor } from "./docker.js";
 import { eventBus } from "./event-bus.js";
 import { hostsResponse } from "./hosts.js";
+import { inspectImages, pruneImages, removeImages } from "./images.js";
 import { registerProxy } from "./proxy.js";
 import { currentStats } from "./stats.js";
 import { appendAudit, needsSetup, readAudit, setPassword } from "./store.js";
@@ -126,6 +129,24 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get(API.stats, async () => currentStats());
 
   app.get(API.hosts, async () => hostsResponse());
+
+  app.get(API.images, async () => inspectImages());
+
+  app.post(API.imageRemove, async (request, reply) => {
+    const body = (request.body ?? {}) as ImageRemoveRequest;
+    if (!Array.isArray(body.ids) || body.ids.length === 0) {
+      return fail(reply, 400, "请选择要删除的镜像");
+    }
+    return { results: await removeImages(body.ids.filter((id) => typeof id === "string")) };
+  });
+
+  app.post(API.imagePrune, async (request, reply) => {
+    const body = (request.body ?? {}) as ImagePruneRequest;
+    if (!["dangling", "unused", "all"].includes(body.scope)) {
+      return fail(reply, 400, "清理范围不合法");
+    }
+    return pruneImages(body.scope);
+  });
 
   app.post(API.batch, async (request, reply) => {
     const body = request.body as BatchRequest;

@@ -15,6 +15,7 @@ import {
 import { apiFetch, del, getCurrentHost, post, postLocal, put, setCurrentHost } from "../api";
 import type { LiveState } from "../live";
 import { AuditPanel, DiagnosticsPanel } from "./Panels";
+import { ImagesPanel } from "./ImagesPanel";
 import { Sidebar } from "./Sidebar";
 import { StackEditor } from "./StackEditor";
 import { DetailPane } from "./DetailPane";
@@ -46,7 +47,7 @@ export function Dashboard({ live, health }: Props) {
   const [selected, setSelected] = useState<string[]>([]);
   const [activeName, setActiveName] = useState<string | null>(null);
   const [selectedService, setSelectedService] = useState<string | null>(null);
-  const [panel, setPanel] = useState<"none" | "audit" | "diagnostics">("none");
+  const [panel, setPanel] = useState<"none" | "audit" | "diagnostics" | "images">("none");
   const [notice, setNotice] = useState("");
   const [creating, setCreating] = useState(false);
   const [task, setTask] = useState<TaskStarted | null>(null);
@@ -241,6 +242,7 @@ export function Dashboard({ live, health }: Props) {
           <button className="ghost" onClick={() => runAll("update")} disabled={busy || stacks.length === 0}>
             全部更新
           </button>
+          <button className="ghost" onClick={() => setPanel(panel === "images" ? "none" : "images")}>镜像</button>
           <button className="ghost" onClick={() => setPanel(panel === "diagnostics" ? "none" : "diagnostics")}>诊断</button>
           <button className="ghost" onClick={() => setPanel(panel === "audit" ? "none" : "audit")}>审计</button>
           <button className="ghost" onClick={logout}>退出</button>
@@ -324,6 +326,8 @@ export function Dashboard({ live, health }: Props) {
           <button className="ghost close-panel" onClick={() => setPanel("none")}>关闭</button>
           {panel === "audit" ? (
             <AuditPanel />
+          ) : panel === "images" ? (
+            <ImagesPanel onNotice={notify} />
           ) : (
             <DiagnosticsPanel live={live} snapshot={snapshot.data} health={health} onNotice={notify} />
           )}

@@ -29,6 +29,9 @@ export const API = {
   convertRun: "/api/tools/convert-run",
   stats: "/api/stats",
   hosts: "/api/hosts",
+  images: "/api/images",
+  imageRemove: "/api/images/remove",
+  imagePrune: "/api/images/prune",
   proxy: (hostId: string, path: string) => {
     const suffix = path.startsWith("/api/")
       ? path.slice(4)

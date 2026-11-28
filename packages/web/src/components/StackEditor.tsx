@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
 import { EditorView } from "@codemirror/view";
@@ -20,6 +20,10 @@ import {
   API,
   type ComposePayload,
   type ContainerInfo,
+  type ImageInfo,
+  type ImageRemoveRequest,
+  type ImageRemoveResult,
+  type ImagesResponse,
   type ServiceAction,
   type StackAction,
   type StackInfo,
@@ -27,6 +31,7 @@ import {
   type ValidateResponse,
 } from "@dockermanager/shared";
 import { apiFetch, getCurrentHost, post, put, scopedUrl } from "../api";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 interface Props {
   stack: StackInfo;
@@ -63,6 +68,47 @@ const statusLabel: Record<string, string> = {
   unknown: "未知",
   error: "异常",
 };
+
+const imageUsageLabel: Record<string, string> = {
+  used: "使用中",
+  declared: "项目声明",
+  unused: "未使用",
+  dangling: "悬空",
+};
+
+/** 与后端一致的镜像名规范化，供项目页匹配服务镜像。 */
+function imageRefKeys(ref: string): string[] {
+  const raw = (ref ?? "").trim().toLowerCase();
+  if (!raw || raw.startsWith("<none>")) return [];
+  if (raw.startsWith("sha256:")) return [raw];
+  const slash = raw.lastIndexOf("/");
+  const colon = raw.lastIndexOf(":");
+  const hasTag = colon > slash;
+  const repo = hasTag ? raw.slice(0, colon) : raw;
+  const tag = hasTag ? raw.slice(colon + 1) : "latest";
+  const keys = new Set([`${repo}:${tag}`, repo]);
+  const bare = repo.replace(/^docker\.io\//, "").replace(/^library\//, "");
+  if (bare !== repo) {
+    keys.add(`${bare}:${tag}`);
+    keys.add(bare);
+  }
+  if (!repo.includes("/")) {
+    keys.add(`docker.io/library/${repo}:${tag}`);
+    keys.add(`docker.io/library/${repo}`);
+    keys.add(`library/${repo}:${tag}`);
+    keys.add(`library/${repo}`);
+  }
+  return [...keys];
+}
+
+function matchesImage(image: ImageInfo, ref: string): boolean {
+  const keys = imageRefKeys(ref);
+  const imageKeys = [
+    ...imageRefKeys(image.fullId),
+    ...image.tags.flatMap(imageRefKeys),
+  ];
+  return keys.some((key) => imageKeys.includes(key));
+}
 
 /** YAML 语法高亮：键名蓝、字符串绿、数字橙、注释灰 */
 const yamlHighlight = HighlightStyle.define([
@@ -152,9 +198,31 @@ export function StackEditor({
   const [compose, setCompose] = useState("");
   const [env, setEnv] = useState("");
   const [dirty, setDirty] = useState(false);
-  const [tab, setTab] = useState<"compose" | "services">("compose");
+  const [tab, setTab] = useState<"compose" | "services" | "images">("compose");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pendingImage, setPendingImage] = useState<ImageInfo | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
+  const imagesQuery = useQuery({
+    queryKey: ["images"],
+    queryFn: () => apiFetch<ImagesResponse>(API.images),
+  });
+  const removeImage = useMutation({
+    mutationFn: (ids: string[]) =>
+      post<{ results: ImageRemoveResult[] }>(API.imageRemove, {
+        ids,
+      } satisfies ImageRemoveRequest),
+    onSuccess: (result) => {
+      const failed = result.results.filter((item) => !item.ok);
+      setPendingImage(null);
+      onNotice(
+        failed.length ? failed.map((item) => item.message).join("；") : "镜像已删除",
+      );
+      void queryClient.invalidateQueries({ queryKey: ["images"] });
+      onChanged();
+    },
+    onError: (error) => onNotice(error instanceof Error ? error.message : "删除镜像失败"),
+  });
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -212,6 +280,12 @@ export function StackEditor({
   }
 
   const services = stack.services;
+  const projectImages = useMemo(() => {
+    const refs = services.map((service) => service.image).filter(Boolean);
+    return (imagesQuery.data?.images ?? []).filter((image) =>
+      refs.some((ref) => matchesImage(image, ref)),
+    );
+  }, [services, imagesQuery.data]);
   // 运行中显示“停止”，其余状态（已停止/已创建/部分启动/异常）统一显示“启动”，
   // 与状态徽章保持一致，避免“停止”和“启动”两个按钮同时出现。
   const isRunning = stack.status === "running";
@@ -292,6 +366,9 @@ export function StackEditor({
         <button className={tab === "services" ? "active" : ""} onClick={() => setTab("services")}>
           服务 ({services.length})
         </button>
+        <button className={tab === "images" ? "active" : ""} onClick={() => setTab("images")}>
+          镜像 ({projectImages.length})
+        </button>
       </nav>
 
       <div className="editor-body">
@@ -347,8 +424,66 @@ export function StackEditor({
           </>
         )}
 
+        {tab === "images" && (
+          <>
+            <p className="muted small" style={{ margin: 0 }}>
+              这里只显示当前项目服务使用的镜像。运行中的镜像需先停止服务才能删除；完整清理请打开顶部「镜像」面板。
+            </p>
+            {imagesQuery.isLoading && <p className="muted">读取镜像中…</p>}
+            {imagesQuery.isError && <p className="inline-error">{String(imagesQuery.error)}</p>}
+            {!imagesQuery.isLoading && projectImages.length === 0 && (
+              <p className="muted">未找到该项目服务对应的镜像。</p>
+            )}
+            <div className="project-images">
+              {projectImages.map((image) => (
+                <div className="project-image-row" key={image.id}>
+                  <div className="image-main">
+                    <div className="image-tags">
+                      {image.tags.length ? (
+                        image.tags.map((tag) => <code key={tag}>{tag}</code>)
+                      ) : (
+                        <code className="muted">&lt;none&gt;</code>
+                      )}
+                    </div>
+                    <div className="image-meta muted small">
+                      ID {image.id} · {image.sizeLabel} ·{" "}
+                      <span className={`image-usage usage-${image.usage}`}>
+                        {imageUsageLabel[image.usage] ?? image.usage}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    className="ghost image-delete"
+                    disabled={!image.cleanable || removeImage.isPending}
+                    title={
+                      image.cleanable
+                        ? "删除镜像"
+                        : "镜像正在被容器使用，请先停止服务"
+                    }
+                    onClick={() => setPendingImage(image)}
+                  >
+                    <Trash2 size={13} /> 删除
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
         {stack.error && <div className="inline-error">{stack.error}</div>}
       </div>
+
+      {pendingImage && (
+        <ConfirmDialog
+          title="删除镜像"
+          message={`确定删除镜像 ${pendingImage.tags[0] ?? pendingImage.id} 吗？删除后下次启动会重新拉取，此操作不可撤销。`}
+          confirmLabel="删除"
+          danger
+          busy={removeImage.isPending}
+          onCancel={() => setPendingImage(null)}
+          onConfirm={() => removeImage.mutate([pendingImage.fullId])}
+        />
+      )}
     </section>
   );
 }

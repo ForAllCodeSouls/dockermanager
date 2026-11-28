@@ -62,7 +62,8 @@ export type ServerEventType =
   | "system.health"
   | "update.available"
   | "update.applied"
-  | "update.failed";
+  | "update.failed"
+  | "image.changed";
 
 export interface ServerEvent<T = unknown> {
   seq: number;
@@ -217,5 +218,68 @@ export interface AgentHost {
 
 export interface HostsResponse {
   hosts: AgentHost[];
+}
+
+/** 镜像的使用状态：使用中 / 被项目声明但未运行 / 未使用 / 悬空 */
+export type ImageUsage = "used" | "declared" | "unused" | "dangling";
+
+/** 镜像的引用来源：容器（含已停止）或项目 compose 声明 */
+export interface ImageReference {
+  kind: "container" | "compose";
+  name: string;
+  state?: string;
+  project?: string;
+}
+
+export interface ImageInfo {
+  /** 短 ID，用于展示 */
+  id: string;
+  /** 完整 ID（sha256:...），用于删除 */
+  fullId: string;
+  /** 仓库标签，过滤掉 <none> */
+  tags: string[];
+  /** 字节数 */
+  size: number;
+  sizeLabel: string;
+  createdAt: string;
+  usage: ImageUsage;
+  /** 是否可安全清理：悬空或未使用 */
+  cleanable: boolean;
+  references: ImageReference[];
+}
+
+export interface ImagesResponse {
+  generatedAt: string;
+  images: ImageInfo[];
+  summary: {
+    total: number;
+    used: number;
+    declared: number;
+    unused: number;
+    dangling: number;
+    reclaimableBytes: number;
+  };
+}
+
+export interface ImageRemoveRequest {
+  ids: string[];
+}
+
+export interface ImageRemoveResult {
+  id: string;
+  ok: boolean;
+  message: string;
+}
+
+export type ImagePruneScope = "dangling" | "unused" | "all";
+
+export interface ImagePruneRequest {
+  scope: ImagePruneScope;
+}
+
+export interface ImagePruneResult {
+  removed: string[];
+  failed: ImageRemoveResult[];
+  reclaimedBytes: number;
 }
 
