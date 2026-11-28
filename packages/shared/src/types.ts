@@ -29,6 +29,8 @@ export interface ContainerStats {
 
 export interface StatsResponse {
   generatedAt: string;
+  /** 性能采样是否开启；关闭时 containers 为空，属于预期行为而非故障 */
+  enabled: boolean;
   containers: ContainerStats[];
 }
 

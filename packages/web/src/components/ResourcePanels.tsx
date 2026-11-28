@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   API,
@@ -265,12 +265,28 @@ export function MaintenancePanel({ onClose, onNotice }: { onClose: () => void; o
   const [pendingPrune, setPendingPrune] = useState<PruneRequest["scope"] | null>(null);
   const [backup, setBackup] = useState<BackupData | null>(null);
   const [overwrite, setOverwrite] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState(false);
   const [pruneResult, setPruneResult] = useState<PruneResult[] | null>(null);
 
   const backupData = useQuery({
     queryKey: ["backup"],
     queryFn: () => apiFetch<BackupData>(API.backup),
   });
+
+  // 恢复差异预览：对比当前备份快照与所选文件，列出将覆盖/将跳过/将创建的项目与卷。
+  // 与服务端 restoreBackup 的判定保持一致：同名且未勾选覆盖 → 跳过；否则写入。
+  const restoreDiff = useMemo(() => {
+    if (!backup) return null;
+    const currentStacks = new Set(backupData.data?.stacks.map((s) => s.name) ?? []);
+    const currentVolumes = new Set(backupData.data?.volumes.map((v) => v.name) ?? []);
+    const willWrite = backup.stacks.filter((s) => s.name && typeof s.compose === "string");
+    const willSkip = overwrite ? [] : willWrite.filter((s) => currentStacks.has(s.name)).map((s) => s.name);
+    const willOverwrite = overwrite ? willWrite.filter((s) => currentStacks.has(s.name)).map((s) => s.name) : [];
+    const willCreate = willWrite.filter((s) => !currentStacks.has(s.name)).map((s) => s.name);
+    const volumesToCreate = (backup.volumes ?? []).filter((v) => v?.name && !currentVolumes.has(v.name)).map((v) => v.name);
+    const volumesExist = (backup.volumes ?? []).filter((v) => v?.name && currentVolumes.has(v.name)).map((v) => v.name);
+    return { willSkip, willOverwrite, willCreate, volumesToCreate, volumesExist, hasCurrent: !!backupData.data };
+  }, [backup, backupData.data, overwrite]);
 
   const prune = useMutation({
     mutationFn: (scope: PruneRequest["scope"]) => post<{ results: PruneResult[] }>(API.systemPrune, { scope }),
@@ -388,13 +404,50 @@ export function MaintenancePanel({ onClose, onNotice }: { onClose: () => void; o
               <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} />
               覆盖同名项目
             </label>
-            <button className="primary" disabled={restore.isPending} onClick={() => restore.mutate()}>
-              {restore.isPending ? "正在恢复…" : "开始恢复"}
-            </button>
-            <button className="ghost" onClick={() => setBackup(null)}>取消</button>
+            {restoreDiff && (
+              <div className="restore-diff">
+                {!restoreDiff.hasCurrent && (
+                  <p className="muted small">无法读取当前项目快照，以下差异仅供参考，请谨慎操作。</p>
+                )}
+                <div className="restore-diff-row"><span className="restore-tag will-create">将新建</span>
+                  <span>{restoreDiff.willCreate.length ? restoreDiff.willCreate.join("、") : "无"}</span></div>
+                <div className="restore-diff-row"><span className="restore-tag will-overwrite">将覆盖</span>
+                  <span>{restoreDiff.willOverwrite.length ? restoreDiff.willOverwrite.join("、") : "无"}</span></div>
+                <div className="restore-diff-row"><span className="restore-tag will-skip">将跳过</span>
+                  <span>{restoreDiff.willSkip.length ? restoreDiff.willSkip.join("、") : "无"}</span></div>
+                <div className="restore-diff-row"><span className="restore-tag will-create">将创建卷</span>
+                  <span>{restoreDiff.volumesToCreate.length ? restoreDiff.volumesToCreate.join("、") : "无"}</span></div>
+                {restoreDiff.volumesExist.length > 0 && (
+                  <div className="restore-diff-row"><span className="restore-tag">已存在卷</span>
+                    <span className="muted">{restoreDiff.volumesExist.join("、")}（会跳过）</span></div>
+                )}
+                <p className="muted small restore-note">注意：备份不包含卷内实际数据，恢复只会创建卷的配置（名称/驱动/标签）。</p>
+              </div>
+            )}
+            <div className="restore-actions">
+              <button className="primary" disabled={restore.isPending} onClick={() => setConfirmRestore(true)}>
+                开始恢复
+              </button>
+              <button className="ghost" onClick={() => setBackup(null)}>取消</button>
+            </div>
           </div>
         )}
       </section>
+
+      {confirmRestore && backup && (
+        <ConfirmDialog
+          title="确认恢复备份"
+          message={`将写入 ${restoreDiff?.willCreate.length ?? 0} 个新项目、覆盖 ${restoreDiff?.willOverwrite.length ?? 0} 个同名项目、跳过 ${restoreDiff?.willSkip.length ?? 0} 个同名项目，创建 ${restoreDiff?.volumesToCreate.length ?? 0} 个卷。卷内数据不在备份中，不会被恢复。`}
+          confirmLabel="确认恢复"
+          danger
+          busy={restore.isPending}
+          onCancel={() => setConfirmRestore(false)}
+          onConfirm={() => {
+            setConfirmRestore(false);
+            restore.mutate();
+          }}
+        />
+      )}
 
       {pendingPrune && (
         <ConfirmDialog

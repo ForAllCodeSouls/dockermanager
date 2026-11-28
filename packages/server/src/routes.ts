@@ -25,7 +25,6 @@ import {
   type SetupRequest,
   type StackAction,
   type SystemVersion,
-  type TaskStarted,
   type UpdateStatus,
   isValidStackName,
 } from "@dockermanager/shared";
@@ -68,6 +67,7 @@ import { currentStats } from "./stats.js";
 import { appendAudit, needsSetup, readAudit, setPassword } from "./store.js";
 import { stacks } from "./stacks.js";
 import { actionArgsForTask, startTask, subscribeTask, taskSnapshot } from "./tasks.js";
+import { TaskBusyError } from "./task-lock.js";
 import { applyUpdate, checkForUpdate, helperDiagnostics, selfLogs, updateStatus } from "./updater.js";
 import { createVolume, inspectVolumes, pruneVolumes, removeVolume } from "./volumes.js";
 import { version } from "./version.js";
@@ -434,23 +434,34 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         restart: ["restart", service],
         pull: ["pull", service],
       };
-      return startTask({
-        stack: name,
-        action: `service:${safeAction} ${service}`,
-        args: [args[safeAction]],
-      });
+      try {
+        return startTask({
+          stack: name,
+          action: `service:${safeAction} ${service}`,
+          args: [args[safeAction]],
+        });
+      } catch (error) {
+        if (error instanceof TaskBusyError) return fail(reply, 409, error.message);
+        throw error;
+      }
     },
   );
 
   for (const action of actions) {
     app.post<{ Params: { name: string } }>(
       `/api/stacks/:name/${action}`,
-      async (request): Promise<TaskStarted> =>
-        startTask({
-          stack: request.params.name,
-          action,
-          args: actionArgsForTask(action),
-        }),
+      async (request, reply) => {
+        try {
+          return startTask({
+            stack: request.params.name,
+            action,
+            args: actionArgsForTask(action),
+          });
+        } catch (error) {
+          if (error instanceof TaskBusyError) return fail(reply, 409, error.message);
+          throw error;
+        }
+      },
     );
   }
 

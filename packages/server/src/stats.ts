@@ -112,7 +112,11 @@ async function sampleOnce(): Promise<ContainerStats[]> {
 }
 
 export function currentStats(): StatsResponse {
-  return { generatedAt: lastGenerated || new Date().toISOString(), containers: cached };
+  return {
+    generatedAt: lastGenerated || new Date().toISOString(),
+    enabled: config.statsEnabled,
+    containers: cached,
+  };
 }
 
 export function startStatsSampler(): void {

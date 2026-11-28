@@ -7,6 +7,7 @@ import {
   type DebugTokenResponse,
   type HealthResponse,
   type Snapshot,
+  type StatsResponse,
   type SystemVersion,
   type UpdateStatus,
 } from "@dockermanager/shared";
@@ -88,6 +89,10 @@ export function DiagnosticsPanel({ onClose, live, snapshot, health, onNotice, on
     queryKey: ["update"],
     queryFn: () => apiFetch<UpdateStatus>(API.systemUpdate),
   });
+  const stats = useQuery({
+    queryKey: ["stats"],
+    queryFn: () => apiFetch<StatsResponse>(API.stats),
+  });
   const [debugUrl, setDebugUrl] = useState("");
   const [confirmApply, setConfirmApply] = useState(false);
 
@@ -125,6 +130,7 @@ export function DiagnosticsPanel({ onClose, live, snapshot, health, onNotice, on
     ["服务端序号", String(health?.seq ?? 0)],
     ["最近同步", snapshot ? new Date(snapshot.generatedAt).toLocaleTimeString("zh-CN") : "—"],
     ["Docker 引擎", snapshot?.engine.version ?? (snapshot?.engine.reachable ? "未知" : "不可达")],
+    ["性能统计开关", stats.data ? (stats.data.enabled ? "开启" : "关闭（未启用，资源占用暂不显示）") : "—"],
     ["应用版本", version.data?.version ?? "—"],
     ["构建提交", version.data?.commit ?? "—"],
     ["构建时间", version.data?.buildTime ?? "—"],

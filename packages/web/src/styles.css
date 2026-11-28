@@ -412,7 +412,15 @@ img.brand-mark, img.empty-logo { background: transparent; border: 0; object-fit:
 .resource-row-actions { display: flex; gap: 5px; flex: 0 0 auto; }
 .prune-grid { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .prune-result { margin-top: 10px; background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 10px; }
-.restore-box { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin-top: var(--space-2); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2); }
+.restore-box { display: grid; gap: var(--space-1); margin-top: var(--space-2); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2); }
+.restore-diff { display: grid; gap: 6px; margin-top: 4px; padding: 10px; background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); }
+.restore-diff-row { display: flex; gap: 10px; align-items: flex-start; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.restore-tag { flex: 0 0 auto; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+.restore-tag.will-create { color: var(--ok); border-color: var(--ok); }
+.restore-tag.will-overwrite { color: var(--warn); border-color: var(--warn); }
+.restore-tag.will-skip { color: var(--muted); }
+.restore-note { margin: 2px 0 0; }
+.restore-actions { display: flex; gap: 8px; margin-top: 4px; }
 
 /* 确认框：输入文字确认 */
 .confirm-typed { display: grid; gap: 6px; text-align: left; margin: -6px 0 18px; color: var(--muted); font-size: 12px; }

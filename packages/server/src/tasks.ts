@@ -7,6 +7,7 @@ import { composeFileFor } from "./docker.js";
 import { eventBus } from "./event-bus.js";
 import { appendLog, stampForDate } from "./log-store.js";
 import { appendAudit } from "./store.js";
+import { acquireStack, releaseStack } from "./task-lock.js";
 
 interface Task {
   id: string;
@@ -50,6 +51,8 @@ export interface StartTaskOptions {
 /** 启动一串 compose 命令，返回任务 ID；输出实时缓存并广播给订阅者。 */
 export function startTask({ stack, action, args }: StartTaskOptions): TaskStarted {
   trimTasks();
+  // 服务端按项目互斥：同一项目已有未结束任务时直接拒绝，避免多端并发把 compose 命令打乱。
+  acquireStack(stack, action);
   const id = randomUUID();
   const task: Task = {
     id,
@@ -115,37 +118,45 @@ export function startTask({ stack, action, args }: StartTaskOptions): TaskStarte
 
   void (async () => {
     let exitCode = 0;
-    if (!composeFile) {
-      emit("stderr", "未找到 compose 文件");
-      exitCode = 1;
-    } else {
-      for (const argv of args) {
-        exitCode = await new Promise<number>((resolve) => {
-          const child = spawn(
-            "docker",
-            ["compose", "-f", composeFile, "-p", stack, ...argv],
-            {
-              cwd: path.dirname(composeFile),
-              env: { ...process.env, COMPOSE_INTERACTIVE_NO_CLI: "1" },
-              stdio: ["ignore", "pipe", "pipe"],
-            },
-          );
-          child.stdout?.on("data", (chunk: Buffer) => emit("stdout", chunk.toString("utf8")));
-          child.stderr?.on("data", (chunk: Buffer) => emit("stderr", chunk.toString("utf8")));
-          child.on("error", (error) => {
-            emit("stderr", error.message);
-            resolve(1);
+    try {
+      if (!composeFile) {
+        emit("stderr", "未找到 compose 文件");
+        exitCode = 1;
+      } else {
+        for (const argv of args) {
+          exitCode = await new Promise<number>((resolve) => {
+            const child = spawn(
+              "docker",
+              ["compose", "-f", composeFile, "-p", stack, ...argv],
+              {
+                cwd: path.dirname(composeFile),
+                env: { ...process.env, COMPOSE_INTERACTIVE_NO_CLI: "1" },
+                stdio: ["ignore", "pipe", "pipe"],
+              },
+            );
+            child.stdout?.on("data", (chunk: Buffer) => emit("stdout", chunk.toString("utf8")));
+            child.stderr?.on("data", (chunk: Buffer) => emit("stderr", chunk.toString("utf8")));
+            child.on("error", (error) => {
+              emit("stderr", error.message);
+              resolve(1);
+            });
+            child.on("close", (code) => resolve(code ?? 1));
           });
-          child.on("close", (code) => resolve(code ?? 1));
-        });
-        if (exitCode !== 0) break;
+          if (exitCode !== 0) break;
+        }
       }
+    } catch (error) {
+      emit("stderr", error instanceof Error ? error.message : String(error));
+      exitCode = 1;
+    } finally {
+      flushPending();
+      task.done = true;
+      task.exitCode = exitCode;
+      task.ok = exitCode === 0;
+      // 无论成功失败都释放项目锁，避免异常时锁永久占用。
+      releaseStack(stack);
     }
 
-    flushPending();
-    task.done = true;
-    task.exitCode = exitCode;
-    task.ok = exitCode === 0;
     appendLog(
       "task",
       taskScope,
