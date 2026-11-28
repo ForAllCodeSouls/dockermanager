@@ -294,11 +294,11 @@ export function Dashboard({ live, health, host, onHostChange }: Props) {
 
   async function logout() {
     await postLocal(API.logout);
-    setPanel("none");
-    setToolMenuOpen(false);
     onHostChange("local");
-    queryClient.clear();
-    await queryClient.invalidateQueries({ queryKey: ["health"] });
+    // 退出后整页重载：Cookie 已失效，重新拉取 health 必然返回未认证，
+    // 由 App 统一跳回登录页。仅靠 queryClient.clear + invalidate 在已清空的
+    // 查询上不会重新请求，会停在旧的已认证界面（项目变空但不跳登录）。
+    window.location.href = "/";
   }
 
   const toolPanelActive =
